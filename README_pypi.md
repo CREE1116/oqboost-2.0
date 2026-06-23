@@ -45,6 +45,34 @@ y_hat = reg.predict(X_test)
 Both are drop-in scikit-learn estimators — usable in `Pipeline`, `GridSearchCV`,
 `cross_val_score`, and `clone`.
 
+## More features
+
+```python
+# Imbalanced data: tune the decision threshold on a holdout (probabilities stay
+# calibrated; "balanced" maximizes balanced accuracy, "f1" maximizes F1).
+clf = OQBoostClassifier(threshold="balanced").fit(X_train, y_train)
+clf.decision_threshold_          # the chosen cut
+
+# Robust regression: huber / quantile losses (init = median), optional output clip.
+reg = OQBoostRegressor(loss="huber", alpha=0.9, clip=True).fit(X_train, y_train)
+q90 = OQBoostRegressor(loss="quantile", alpha=0.9).fit(X_train, y_train)  # 90th pctile
+
+# Monotonic constraints (-1 / 0 / +1 per feature; list or {index: dir} dict),
+# enforced through the oblique splits.
+reg = OQBoostRegressor(monotone_constraints={0: +1, 3: -1}).fit(X_train, y_train)
+
+# Incremental training: add trees without refitting from scratch.
+clf = OQBoostClassifier(n_estimators=100, warm_start=True).fit(X_train, y_train)
+clf.set_params(n_estimators=200).fit(X_train, y_train)   # trains only +100 trees
+
+# Native explanations (no SHAP dependency)
+clf.feature_importances_         # Σ gain per feature
+clf.coefficient_importances_     # Σ gain·|coef| (direction-weighted)
+clf.interaction_importances_     # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
+phi = clf.explain(X_test)        # (n, n_features) additive contributions
+                                 # phi.sum(axis=1) == raw prediction − base (like SHAP)
+```
+
 ## Key hyperparameters
 
 | Param | Default | Meaning |
