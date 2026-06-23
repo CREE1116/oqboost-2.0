@@ -18,7 +18,7 @@ OQBoost는 한 분할에서 **두 피처의 선형결합**(`a·u + b·v < t`)으
 
 표준 부스터(XGBoost, LightGBM)는 분할이 `x[f] < threshold` 형태의 **축-정렬**이다.
 - 사선 경계(예: `x0·x1 > 0` XOR)를 표현하려면 계단식으로 여러 컷을 쌓아 경계가 거칠어진다.
-- 실제로 벤치의 **XOR에서 XGBoost는 AUC 0.53**(무력)인데 OQBoost는 0.92, **Spiral**에서도 OQBoost가 가장 매끈한 경계를 그린다 (`scripts/output/decision_boundary.png`).
+- 2D 합성(XOR/Spiral/Checkerboard)서 부스터들 AUC는 엇비슷하나, OQBoost는 **매끈한 대각 경계를 적은 분할로** 그린다 — 축정렬 트리가 계단으로 근사하는 것과 대조. Spiral서 AUC≈1.000으로 최매끈 (`docs/decision_boundary.png`).
 
 OQBoost는 한 노드에서 **두 피처를 동시에** 보고 그 평면에서 최적 사선을 찾아 이 격차를 직접 메운다.
 
@@ -126,7 +126,7 @@ sklearn 호환: `get_params`/`set_params`/`clone`, Pipeline·GridSearchCV에 그
 | XGBoost | 3.36 | 0.211 |
 
 - **XGBoost·LightGBM을 정확도·속도 둘 다 앞섬** (2위). CatBoost만 우위.
-- **강점**: oblique/상호작용 구조 — Spiral·GaussQuantiles·bank·diabetes 최상위, XOR/Checkerboard서 XGB 참패(0.53/0.74) 대비 0.92/0.93.
+- **강점**: oblique/상호작용 구조 — Spiral(≈1.000)·GaussQuantiles 최상위, 2D 경계가 매끈(적은 분할).
 - **약점**: 범주 많은 real(german/adult), 고차원 d=30(breast) 단일 0.44s(O(d²) 쌍).
 
 ---

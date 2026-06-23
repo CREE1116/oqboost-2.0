@@ -1,13 +1,13 @@
 {
   "breast_cancer": {
     "OQBoost": {
-      "n_estimators": 254,
-      "learning_rate": 0.045633479761632394,
-      "max_depth": 2,
-      "max_bins": 25,
-      "subsample": 0.7760609974958405,
-      "colsample": 0.6488152939379115,
-      "reg_lambda": 0.6938901412739394
+      "n_estimators": 279,
+      "learning_rate": 0.19684342558049117,
+      "max_depth": 1,
+      "max_bins": 32,
+      "subsample": 0.6367564879720436,
+      "colsample": 0.7180428980906396,
+      "reg_lambda": 1.3690247040121744
     },
     "XGBoost": {
       "n_estimators": 243,
@@ -37,13 +37,13 @@
   },
   "german_credit": {
     "OQBoost": {
-      "n_estimators": 242,
-      "learning_rate": 0.06267227443208938,
-      "max_depth": 2,
-      "max_bins": 31,
-      "subsample": 0.8527288968541575,
-      "colsample": 0.6025970165339375,
-      "reg_lambda": 0.3351947020459186
+      "n_estimators": 281,
+      "learning_rate": 0.05669528576352622,
+      "max_depth": 1,
+      "max_bins": 29,
+      "subsample": 0.7978631127199067,
+      "colsample": 0.6049452870817945,
+      "reg_lambda": 2.479742074904918
     },
     "XGBoost": {
       "n_estimators": 300,
@@ -73,13 +73,13 @@
   },
   "diabetes": {
     "OQBoost": {
-      "n_estimators": 96,
-      "learning_rate": 0.045035916005041095,
-      "max_depth": 2,
-      "max_bins": 23,
-      "subsample": 0.7838411618943655,
-      "colsample": 0.6674360332512806,
-      "reg_lambda": 0.12292235606383327
+      "n_estimators": 220,
+      "learning_rate": 0.050783754848263286,
+      "max_depth": 1,
+      "max_bins": 21,
+      "subsample": 0.8090461274089129,
+      "colsample": 0.719839301962269,
+      "reg_lambda": 2.922975823756307
     },
     "XGBoost": {
       "n_estimators": 140,
@@ -109,13 +109,13 @@
   },
   "spambase": {
     "OQBoost": {
-      "n_estimators": 255,
-      "learning_rate": 0.041585116442835864,
-      "max_depth": 4,
-      "max_bins": 18,
-      "subsample": 0.7281742238672847,
-      "colsample": 0.6252927449171616,
-      "reg_lambda": 1.3393173529525881
+      "n_estimators": 215,
+      "learning_rate": 0.10845431323996428,
+      "max_depth": 2,
+      "max_bins": 14,
+      "subsample": 0.7585862018133974,
+      "colsample": 0.7671714667563637,
+      "reg_lambda": 2.14544545589983
     },
     "XGBoost": {
       "n_estimators": 165,
@@ -145,13 +145,13 @@
   },
   "bank_marketing": {
     "OQBoost": {
-      "n_estimators": 223,
-      "learning_rate": 0.03719257941975386,
+      "n_estimators": 287,
+      "learning_rate": 0.054486570098126796,
       "max_depth": 4,
-      "max_bins": 27,
-      "subsample": 0.7479526862954654,
-      "colsample": 0.9663506817502676,
-      "reg_lambda": 1.9409515961043005
+      "max_bins": 28,
+      "subsample": 0.8994587893775174,
+      "colsample": 0.9390228263002863,
+      "reg_lambda": 2.7029793617927123
     },
     "XGBoost": {
       "n_estimators": 189,
@@ -181,13 +181,13 @@
   },
   "adult": {
     "OQBoost": {
-      "n_estimators": 161,
-      "learning_rate": 0.04760903887302353,
-      "max_depth": 4,
-      "max_bins": 19,
-      "subsample": 0.9357147516327098,
-      "colsample": 0.683769272209143,
-      "reg_lambda": 0.10115456055304105
+      "n_estimators": 281,
+      "learning_rate": 0.07658458298023169,
+      "max_depth": 2,
+      "max_bins": 11,
+      "subsample": 0.9136936286547094,
+      "colsample": 0.8956564108868522,
+      "reg_lambda": 0.20212027939220634
     },
     "XGBoost": {
       "n_estimators": 209,
@@ -217,13 +217,13 @@
   },
   "phoneme": {
     "OQBoost": {
-      "n_estimators": 276,
-      "learning_rate": 0.22845202322636457,
-      "max_depth": 5,
-      "max_bins": 8,
-      "subsample": 0.8288943888388846,
-      "colsample": 0.9062008842493571,
-      "reg_lambda": 0.14776082673804142
+      "n_estimators": 288,
+      "learning_rate": 0.25471747853386395,
+      "max_depth": 4,
+      "max_bins": 28,
+      "subsample": 0.8669399218089756,
+      "colsample": 0.848123771000924,
+      "reg_lambda": 0.13551774724833873
     },
     "XGBoost": {
       "n_estimators": 278,

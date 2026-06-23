@@ -22,14 +22,14 @@ def make_models(seed=42):
     return {
         "OQBoost": OQBoostClassifier(
             n_estimators=120, learning_rate=0.06, max_depth=4,
-            subsample=0.8, colsample=0.8, random_state=seed),
+            subsample=1.0, colsample=1.0, random_state=seed),
         "XGBoost": xgb.XGBClassifier(
             n_estimators=120, learning_rate=0.06, max_depth=4, reg_lambda=1.0,
-            subsample=0.8, colsample_bytree=0.8, tree_method="hist",
+            subsample=1.0, colsample_bytree=1.0, tree_method="hist",
             eval_metric="logloss", verbosity=0, random_state=seed),
         "LightGBM": lgb.LGBMClassifier(
             n_estimators=120, learning_rate=0.06, max_depth=4, reg_lambda=1.0,
-            subsample=0.8, colsample_bytree=0.8, subsample_freq=1,
+            subsample=1.0, colsample_bytree=1.0,
             verbose=-1, random_state=seed),
         "CatBoost": CatBoostClassifier(
             n_estimators=120, learning_rate=0.06, depth=4, l2_leaf_reg=1.0,

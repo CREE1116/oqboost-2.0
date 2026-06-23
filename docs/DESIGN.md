@@ -158,7 +158,7 @@ struct Booster     { std::vector<ObliqueTree> trees; float init_score, lr; };
 
 **OQBoost가 XGBoost·LightGBM을 정확도·속도 둘 다 앞섬** (2위). CatBoost만 위
 (oblivious tree 속도 + native 범주). **강점**: oblique 구조(Spiral·GaussQuantiles·bank·
-XOR/Checkerboard서 XGB 참패 대조). **약점**: 범주 많은 real(german/adult), breast(d=30)
+2D서 매끈한 대각 경계·적은 분할). **약점**: 범주 많은 real(german/adult), breast(d=30)
 0.44s(O(d²) 쌍 — SIS opt-in 여지). 경계 시각화: `scripts/output/decision_boundary.png`.
 
 ---

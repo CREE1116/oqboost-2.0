@@ -60,10 +60,10 @@ Both are drop-in scikit-learn estimators — usable in `Pipeline`, `GridSearchCV
 
 ## Why oblique
 
-Axis-aligned boosters need many stacked cuts to approximate a diagonal boundary. On a
-2D **XOR** problem XGBoost reaches only AUC ≈ 0.53 while OQBoost reaches ≈ 0.92; on a
-**Spiral** OQBoost draws the smoothest boundary of all four boosters. Across tuned
-benchmarks it ranks above XGBoost and LightGBM.
+Axis-aligned boosters need many stacked cuts to approximate a diagonal boundary. On 2D
+problems (XOR, Spiral, Checkerboard) OQBoost draws **smooth diagonal boundaries with far
+fewer splits** where axis-aligned trees produce blocky staircases — reaching AUC ≈ 1.000
+on Spiral. Across Optuna-tuned tabular benchmarks it is competitive with the best boosters.
 
 Full benchmarks, decision-boundary figures, and design notes:
 **https://github.com/cree1116/oqboost-2.0**

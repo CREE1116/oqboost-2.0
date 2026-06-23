@@ -94,9 +94,11 @@ Across 12 OpenML binary datasets (each model independently Optuna-tuned):
 | LightGBM | 3.00 | 2 | 0.9009 |
 
 OQBoost ranks **first on mean AUC rank, mean AUC, and number of wins**, ahead of
-CatBoost, XGBoost and LightGBM. It is strongest on oblique/interaction structure — e.g. 2D **XOR** where
-axis-aligned XGBoost collapses to AUC ≈ 0.53 while OQBoost reaches ≈ 0.92, and
-**Spiral** where it draws the smoothest boundary of all four boosters (figure above).
+CatBoost, XGBoost and LightGBM. It is strongest on oblique/interaction structure — on the 2D
+synthetic problems (XOR, Spiral, Checkerboard) all boosters reach comparable AUC, but OQBoost
+draws **smooth diagonal boundaries** with far fewer splits where axis-aligned trees produce
+blocky staircases (see figure above). On **Spiral** OQBoost reaches AUC ≈ 1.000 — the
+smoothest boundary of all four boosters.
 
 ---
 
