@@ -60,15 +60,22 @@ class _BaseOQBoost(BaseEstimator):
     def __getstate__(self):
         state = self.__dict__.copy()
         booster = state.pop("_booster", None)
+        boosters = state.pop("_boosters", None)
         state["_booster_bytes"] = booster.serialize() if booster is not None else None
+        state["_boosters_bytes"] = ([b.serialize() for b in boosters]
+                                    if boosters is not None else None)
         return state
 
     def __setstate__(self, state):
         bb = state.pop("_booster_bytes", None)
+        bbs = state.pop("_boosters_bytes", None)
         self.__dict__.update(state)
         if bb is not None:
-            self._booster = _core.Booster()
-            self._booster.deserialize(bb)
+            self._booster = _core.Booster(); self._booster.deserialize(bb)
+        if bbs is not None:
+            self._boosters = []
+            for s in bbs:
+                b = _core.Booster(); b.deserialize(s); self._boosters.append(b)
 
     @property
     def feature_importances_(self):
@@ -88,27 +95,53 @@ class _BaseOQBoost(BaseEstimator):
 
 
 class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
-    """2D-oblique gradient-boosted oblique trees — 이진 분류기 (C++ 백엔드)."""
+    """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
 
     def fit(self, X, y):
         X, y = _check_Xy(X, y)
         self.classes_ = np.unique(y)
-        if len(self.classes_) != 2:
-            raise ValueError("OQBoostClassifier는 이진 분류만 지원합니다.")
-        y01 = (y == self.classes_[1]).astype(float)
         self.n_features_in_ = X.shape[1]
-        self._booster = self._make_booster(objective=0)
-        self._booster.fit(np.ascontiguousarray(X, dtype=float), y01)
+        Xc = np.ascontiguousarray(X, dtype=float)
+        if len(self.classes_) < 2:
+            raise ValueError("클래스가 2개 미만입니다.")
+        elif len(self.classes_) == 2:
+            self._multiclass = False
+            self._booster = self._make_booster(objective=0)
+            self._booster.fit(Xc, (y == self.classes_[1]).astype(float))
+        else:
+            # one-vs-rest: 클래스마다 이진 부스터
+            self._multiclass = True
+            self._boosters = []
+            for cls in self.classes_:
+                b = self._make_booster(objective=0)
+                b.fit(Xc, (y == cls).astype(float))
+                self._boosters.append(b)
         return self
 
     def predict_proba(self, X):
-        check_is_fitted(self, "_booster")
-        X = _check_X(X)
-        return self._booster.predict_proba(np.ascontiguousarray(X, dtype=float))
+        check_is_fitted(self, "_multiclass")
+        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        if not self._multiclass:
+            return self._booster.predict_proba(Xc)
+        # OvR: 각 부스터의 P(class k) → 행 정규화
+        P = np.column_stack([b.predict_proba(Xc)[:, 1] for b in self._boosters])
+        P = np.clip(P, 1e-12, None)
+        return P / P.sum(axis=1, keepdims=True)
 
     def predict(self, X):
-        idx = (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
-        return self.classes_[idx]
+        P = self.predict_proba(X)
+        if not self._multiclass:
+            return self.classes_[(P[:, 1] >= 0.5).astype(int)]
+        return self.classes_[P.argmax(axis=1)]
+
+    @property
+    def feature_importances_(self):
+        check_is_fitted(self, "_multiclass")
+        if not self._multiclass:
+            return self._booster.feature_importances()
+        # OvR: 부스터 평균
+        fi = np.mean([b.feature_importances() for b in self._boosters], axis=0)
+        return fi / fi.sum() if fi.sum() > 0 else fi
 
 
 class OQBoostRegressor(_BaseOQBoost, RegressorMixin):

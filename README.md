@@ -34,7 +34,7 @@ boundaries (Spiral, XOR) where axis-aligned XGBoost collapses into blocky stairc
 | Categorical features | Integer codes through the oblique path (no special encoding) |
 | Missing values | Native — NaN routed to a dedicated learned bin (no imputation needed) |
 | Speed | Global histogram binning + OpenMP-parallel pair search |
-| Tasks | `OQBoostClassifier` (binary) · `OQBoostRegressor` |
+| Tasks | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor` |
 | API | scikit-learn compatible |
 | Backend | Compiled C++ (pybind11) |
 
