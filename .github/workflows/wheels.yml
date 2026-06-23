@@ -31,6 +31,9 @@ jobs:
           CIBW_SKIP: "*-musllinux_* *_i686 *-win32 pp*"
           CIBW_ARCHS_MACOS: "auto"
           CIBW_ARCHS_LINUX: "x86_64"
+          # 최신 manylinux 이미지 — 테스트 의존성(numpy/sklearn/scipy) 휠이 존재해
+          # 구 manylinux2014서의 소스빌드 실패를 피한다.
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
           # macOS: libomp로 OpenMP 유지. deployment target을 러너 macOS에 맞춰
           # delocate의 wheel-tag/버전 충돌 회피.
           CIBW_BEFORE_ALL_MACOS: "brew install libomp"
