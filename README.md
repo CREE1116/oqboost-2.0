@@ -88,13 +88,13 @@ Across 12 OpenML binary datasets (each model independently Optuna-tuned):
 
 | Model | mean AUC rank | outright wins | mean AUC |
 |-------|--------------:|--------------:|---------:|
-| CatBoost | 2.17 | 3 | 0.9054 |
-| **OQBoost** | **2.33** | **6 / 12** | **0.9046** |
-| LightGBM | 2.67 | 1 | 0.9021 |
-| XGBoost | 2.83 | 2 | 0.9019 |
+| **OQBoost** | **2.17** | **5 / 12** | **0.9047** |
+| CatBoost | 2.33 | 2 | 0.9036 |
+| XGBoost | 2.50 | 3 | 0.9040 |
+| LightGBM | 3.00 | 2 | 0.9009 |
 
-OQBoost takes the **most outright wins** and ties CatBoost on mean AUC, ahead of
-XGBoost and LightGBM. It is strongest on oblique/interaction structure — e.g. 2D **XOR** where
+OQBoost ranks **first on mean AUC rank, mean AUC, and number of wins**, ahead of
+CatBoost, XGBoost and LightGBM. It is strongest on oblique/interaction structure — e.g. 2D **XOR** where
 axis-aligned XGBoost collapses to AUC ≈ 0.53 while OQBoost reaches ≈ 0.92, and
 **Spiral** where it draws the smoothest boundary of all four boosters (figure above).
 
