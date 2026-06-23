@@ -45,12 +45,13 @@ raw  = init
 
 ### 3. 노드 분할 — 1D vs 2D, gain 최대 채택
 - **1D**: bin 히스토그램에서 최적 임계 `x[f] < t`.
-- **2D oblique (핵심)**:
-  1. 피처쌍 `(fA,fB)`의 bin 그리드에 G/H 집계.
-  2. 셀을 leaf-weight `w=-G/(H+λ)`로 정렬해 이진 분할(방향 seed 레이블).
-  3. 레이블을 bin-center 좌표에 **H-가중 최소제곱(2×2, O(1))**으로 피팅 → 방향 `coef`.
-  4. 투영 `proj = coef·x_raw` 위에서 히스토그램 임계 스캔 → `t`.
+- **2D oblique (핵심)** — 방향은 **H-가중 gradient 회귀**(기본, `fast_dir=1`):
+  1. 피처쌍 `(fA,fB)`에서 per-sample Newton 타깃 `t=-g/h`를 두 raw 피처에 H-가중
+     최소제곱 → 방향 `coef = (XᵀHX + λI)⁻¹ XᵀH t` (9-스칼라 1패스 + 2×2, O(1)).
+  2. 투영 `proj = coef·x_raw` 위에서 히스토그램 임계 스캔 → `t`.
   - 분할: `coef[0]·x[fA] + coef[1]·x[fB] < t`.
+  - legacy(`fast_dir=0`): bin 그리드 → BHC 이진 seed → 레이블 H-가중 LSQ. 약간 더
+    정확할 수 있으나 그리드·정렬 비용으로 ~2배 느림.
 
 각 노드 쌍 탐색은 **OpenMP 병렬**(피처쌍 단위).
 

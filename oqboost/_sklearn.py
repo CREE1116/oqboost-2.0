@@ -41,7 +41,7 @@ class _BaseOQBoost(BaseEstimator):
         n_screen: int = -1,
         subsample: float = 0.8,
         colsample: float = 0.8,
-        fast_dir: int = 0,
+        fast_dir: int = 1,   # H-가중 gradient 회귀 방향(기본). 0=BHC seed(legacy)
         random_state: int = 42,
     ):
         self.n_estimators = n_estimators
