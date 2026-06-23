@@ -127,6 +127,13 @@ correlation of predictions** for regression (`python scripts/model_similarity.py
 | **LightGBM** |  0.950  |  0.965  |   1.000  |   0.957  |
 | **CatBoost** |  0.963  |  0.958  |   0.957  |   1.000  |
 
+| Multiclass (13) | OQBoost | XGBoost | LightGBM | CatBoost |
+| --------------- | ------: | ------: | -------: | -------: |
+| **OQBoost**     |  1.000  |  0.935  |   0.926  |   0.943  |
+| **XGBoost**     |  0.935  |  1.000  |   0.930  |   0.936  |
+| **LightGBM**    |  0.926  |  0.930  |   1.000  |   0.930  |
+| **CatBoost**    |  0.943  |  0.936  |   0.930  |   1.000  |
+
 | Regression (12) | OQBoost | XGBoost | LightGBM | CatBoost |
 | --------------- | ------: | ------: | -------: | -------: |
 | **OQBoost**     |  1.000  |  0.977  |   0.978  |   0.979  |
@@ -137,7 +144,7 @@ correlation of predictions** for regression (`python scripts/model_similarity.py
 The axis-aligned trio (XGBoost / LightGBM / CatBoost) agree most tightly with each
 other, while OQBoost sits slightly further from all three — it learns a somewhat
 different function thanks to the oblique splits, which makes it a useful **diversifier**
-in an ensemble. (Multiclass shows the same pattern, ~0.93–0.94; see the figure.)
+in an ensemble.
 
 ---
 
