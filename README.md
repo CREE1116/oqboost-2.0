@@ -110,6 +110,35 @@ generally small and tuning/dataset dependent; treat this as one reproducible sna
 not a definitive ranking. Where the oblique structure helps most is interaction-heavy
 problems — see the 2D synthetic boundaries above.
 
+### Prediction similarity
+
+How much does OQBoost agree with the axis-aligned boosters? Pairwise prediction
+similarity across the tuned suites — **label agreement** for classification, **Pearson
+correlation of predictions** for regression (`python scripts/model_similarity.py --full`):
+
+<p align="center">
+  <img src="docs/model_similarity.png" alt="Pairwise prediction similarity heatmaps" width="820">
+</p>
+
+| Binary (26)  | OQBoost | XGBoost | LightGBM | CatBoost |
+| ------------ | ------: | ------: | -------: | -------: |
+| **OQBoost**  |  1.000  |  0.953  |   0.950  |   0.963  |
+| **XGBoost**  |  0.953  |  1.000  |   0.965  |   0.958  |
+| **LightGBM** |  0.950  |  0.965  |   1.000  |   0.957  |
+| **CatBoost** |  0.963  |  0.958  |   0.957  |   1.000  |
+
+| Regression (12) | OQBoost | XGBoost | LightGBM | CatBoost |
+| --------------- | ------: | ------: | -------: | -------: |
+| **OQBoost**     |  1.000  |  0.977  |   0.978  |   0.979  |
+| **XGBoost**     |  0.977  |  1.000  |   0.985  |   0.983  |
+| **LightGBM**    |  0.978  |  0.985  |   1.000  |   0.982  |
+| **CatBoost**    |  0.979  |  0.983  |   0.982  |   1.000  |
+
+The axis-aligned trio (XGBoost / LightGBM / CatBoost) agree most tightly with each
+other, while OQBoost sits slightly further from all three — it learns a somewhat
+different function thanks to the oblique splits, which makes it a useful **diversifier**
+in an ensemble. (Multiclass shows the same pattern, ~0.93–0.94; see the figure.)
+
 ---
 
 ## How it works
