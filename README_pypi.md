@@ -103,6 +103,7 @@ oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 | `alpha`                | 0.9         | huber δ-quantile / quantile target                                                |
 | `clip`                 | `False`     | clamp regression output to training target range                                  |
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict)                |
+| `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (no level merging)  |
 
 ## Why oblique
 

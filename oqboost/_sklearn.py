@@ -59,6 +59,7 @@ class _BaseOQBoost(BaseEstimator):
         alpha: float = 0.9,      # huber=delta 분위 / quantile=목표 분위 (회귀기만)
         clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
         monotone_constraints=None,  # 피처별 단조 제약 리스트 -1/0/+1 (길이=n_features)
+        categorical_features=None,  # 범주형 피처 인덱스/마스크 → 무손실 비닝
         warm_start: bool = False,   # True+n_estimators↑ 시 기존 트리에 추가 학습
         random_state: int = 42,
     ):
@@ -77,6 +78,7 @@ class _BaseOQBoost(BaseEstimator):
         self.alpha = alpha
         self.clip = clip
         self.monotone_constraints = monotone_constraints
+        self.categorical_features = categorical_features
         self.warm_start = warm_start
         self.random_state = random_state
 
@@ -135,6 +137,7 @@ class _BaseOQBoost(BaseEstimator):
         if self.loss not in _LOSS:
             raise ValueError(f"loss='{self.loss}' 미지원 ({' | '.join(_LOSS)})")
         mono = self._monotone_list()
+        cat = self._categorical_list()
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
             max_depth=self.max_depth, max_bins=self.max_bins,
@@ -143,8 +146,26 @@ class _BaseOQBoost(BaseEstimator):
             colsample=self.colsample, seed=int(self.random_state),
             objective=objective, fast_dir=self.fast_dir,
             loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
-            monotone=mono,
+            monotone=mono, categorical=cat,
         )
+
+    def _categorical_list(self):
+        """categorical_features → 길이 n_features의 0/1 마스크(없으면 빈 리스트).
+
+        인덱스 리스트([2,5]), bool 마스크([F,F,T,...]), 또는 0/1 마스크 허용."""
+        cf = self.categorical_features
+        if cf is None:
+            return []
+        d = self.n_features_in_
+        arr = np.asarray(cf)
+        if arr.dtype == bool:
+            if len(arr) != d:
+                raise ValueError(f"categorical_features bool 마스크 길이 {len(arr)} ≠ {d}")
+            return [int(v) for v in arr]
+        out = [0] * d
+        for i in arr:
+            out[int(i)] = 1          # 인덱스 리스트로 해석
+        return out
 
     def _monotone_list(self):
         """monotone_constraints → 길이 n_features의 int 리스트(없으면 빈 리스트).

@@ -47,7 +47,8 @@ struct Bins {
   std::vector<bool> has_nan;                 // [f] 피처별 NaN 존재 여부
 };
 
-static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
+static Bins precompute_bins(const double* X, int n, int d, int max_bins,
+                            const std::vector<int>& categorical) {
   Bins B;
   B.idx.resize((size_t)n * d);
   B.edges.resize(d);
@@ -80,10 +81,26 @@ static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
 
     std::sort(cs.begin(), cs.end());
     std::vector<double> e;
-    int actual_max_bins = fnan ? std::max(2, max_bins - 1) : max_bins;
-    for (int b = 1; b < actual_max_bins; b++)
-      e.push_back(percentile_sorted(cs, 100.0 * b / actual_max_bins));
-    e = unique_sorted(e);
+    bool is_cat = !categorical.empty() && categorical[f];
+    if (is_cat) {
+      // 범주형: 무손실 비닝 — 각 distinct 레벨이 자기 bin. 인접 unique 중점을 edge로.
+      // max_bins(연속용 저해상도)에 영향받지 않아 고카디널리티 레벨이 병합되지 않음.
+      std::vector<double> u = unique_sorted(cs);
+      const int HARD_CAP = 8192;  // u16 bin index + 성능 상한
+      if ((int)u.size() <= HARD_CAP) {
+        for (size_t k = 0; k + 1 < u.size(); k++)
+          e.push_back(0.5 * (u[k] + u[k + 1]));
+      } else {  // 과도 카디널리티 → quantile 폴백
+        for (int b = 1; b < HARD_CAP; b++)
+          e.push_back(percentile_sorted(cs, 100.0 * b / HARD_CAP));
+        e = unique_sorted(e);
+      }
+    } else {
+      int actual_max_bins = fnan ? std::max(2, max_bins - 1) : max_bins;
+      for (int b = 1; b < actual_max_bins; b++)
+        e.push_back(percentile_sorted(cs, 100.0 * b / actual_max_bins));
+      e = unique_sorted(e);
+    }
 
     int norm_nb = (int)e.size() + 1;
     int total_nb = fnan ? norm_nb + 1 : norm_nb;
@@ -152,6 +169,8 @@ struct Params {
   int clip = 0;        // 1=예측을 train 타깃 [min,max]로 clamp (외삽 폭주 방지)
   // 피처별 단조 제약: -1=감소, 0=무제약, +1=증가. 비면 제약 없음(fast path).
   std::vector<int> monotone;
+  // 피처별 범주형 플래그(1=범주형 → 무손실 비닝). 비면 전부 연속.
+  std::vector<int> categorical;
 };
 
 // ─── 단일 히스토그램 해상도 (전역 사전 binning과 2D 투영 threshold 스캔이
@@ -856,7 +875,8 @@ class Booster {
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
-          int loss, double alpha, int clip, std::vector<int> monotone) {
+          int loss, double alpha, int clip, std::vector<int> monotone,
+          std::vector<int> categorical) {
     P.n_estimators = n_estimators;
     P.learning_rate = learning_rate;
     P.max_depth = max_depth;
@@ -873,6 +893,7 @@ class Booster {
     P.alpha = alpha;
     P.clip = clip;
     P.monotone = std::move(monotone);
+    P.categorical = std::move(categorical);
   }
 
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
@@ -885,7 +906,7 @@ class Booster {
     // 단일 소스로 통일: max_bins가 전역 사전 binning과 2D threshold 스캔
     // 해상도를 동시에 결정. fit() 호출당 한 번만 쓰고 이후 읽기 전용.
     g_hist_bins = std::max(2, P.max_bins);
-    Bins B = precompute_bins(X, n, d, P.max_bins);
+    Bins B = precompute_bins(X, n, d, P.max_bins, P.categorical);
 
     double ybar = 0;
     for (int i = 0; i < n; i++) ybar += y[i];
@@ -927,7 +948,7 @@ class Booster {
     const double* y = (const double*)yb.ptr;
     if (extra <= 0 || trees.empty()) return;
     g_hist_bins = std::max(2, P.max_bins);
-    Bins B = precompute_bins(X, n, d, P.max_bins);
+    Bins B = precompute_bins(X, n, d, P.max_bins, P.categorical);
     // 기존 트리로 raw 재구성 (predict_raw와 동일, clip 제외)
     std::vector<double> raw(n, init_score);
 #pragma omp parallel for if (n > 2000)
@@ -1212,7 +1233,8 @@ class Booster {
 PYBIND11_MODULE(oqboost_core, m) {
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
-                    unsigned, int, int, int, double, int, std::vector<int>>(),
+                    unsigned, int, int, int, double, int, std::vector<int>,
+                    std::vector<int>>(),
            py::arg("n_estimators") = 60, py::arg("learning_rate") = 0.12,
            py::arg("max_depth") = 4, py::arg("max_bins") = 64,
            py::arg("reg_lambda") = 1.0, py::arg("min_samples") = 10,
@@ -1220,7 +1242,8 @@ PYBIND11_MODULE(oqboost_core, m) {
            py::arg("colsample") = 1.0, py::arg("seed") = 42,
            py::arg("objective") = 0, py::arg("fast_dir") = 0,
            py::arg("loss") = 0, py::arg("alpha") = 0.9, py::arg("clip") = 0,
-           py::arg("monotone") = std::vector<int>{})
+           py::arg("monotone") = std::vector<int>{},
+           py::arg("categorical") = std::vector<int>{})
       .def("fit", &Booster::fit)
       .def("fit_more", &Booster::fit_more)
       .def("n_trees", &Booster::n_trees)

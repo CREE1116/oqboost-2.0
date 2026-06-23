@@ -34,7 +34,7 @@ them with axis-aligned steps.
 | Split type                | Oblique — linear combination of **two** features per node              |
 | Direction finding         | H-weighted gradient regression (2×2, O(1)) — deterministic, `fast_dir` |
 | Higher-order interactions | Composed via tree depth + boosting (2D atoms)                          |
-| Categorical features      | Integer codes through the oblique path (no special encoding)           |
+| Categorical features      | Integer codes through the oblique path; `categorical_features` gives marked columns lossless binning |
 | Missing values            | Native — NaN routed to a dedicated learned bin (no imputation needed)  |
 | Speed                     | Global histogram binning + OpenMP-parallel pair search                 |
 | Tasks                     | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor`     |
@@ -201,6 +201,7 @@ joblib.dump(clf, "clf.joblib")
 | `clip`                 | `False`     | clamp regression output to the training target range (no extrapolation blow-up)                                                 |
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
 | `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
+| `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (one bin per level, ignoring `max_bins`)                          |
 
 ---
 
