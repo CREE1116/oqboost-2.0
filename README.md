@@ -8,6 +8,10 @@ boosters approximate with coarse staircases. Version 2.0 is a ground-up redesign
 histogram-binned 2D-oblique core that finds split directions via a BHC-seeded
 H-weighted least-squares fit — no random projections, no numerical search.
 
+> **Lineage:** OQBoost 1.x ([cree1116/OQBoost](https://github.com/cree1116/OQBoost))
+> found oblique directions with a Deterministic Gradient-Covariance Scan (DGCS).
+> 2.0 is a fresh codebase with a different, faster direction finder and a C++ backend.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 

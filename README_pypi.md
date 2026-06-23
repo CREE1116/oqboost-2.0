@@ -65,7 +65,12 @@ Axis-aligned boosters need many stacked cuts to approximate a diagonal boundary.
 benchmarks it ranks above XGBoost and LightGBM.
 
 Full benchmarks, decision-boundary figures, and design notes:
-**https://github.com/cree1116/oqboost**
+**https://github.com/cree1116/oqboost-2.0**
+
+> **Note:** OQBoost 2.0 is a ground-up rewrite. The original 1.x line — oblique splits
+> via a Deterministic Gradient-Covariance Scan (DGCS) — lives at
+> [cree1116/OQBoost](https://github.com/cree1116/OQBoost). 2.0 replaces the direction
+> finder with a histogram-binned BHC-seeded least-squares fit.
 
 ---
 

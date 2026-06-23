@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oqboost"
-version = "2.0.0"
+version = "2.0.1"
 description = "OQBoost 2.0 — gradient-boosted 2D-oblique decision trees (histogram-binned, C++ backend)"
 readme = "README_pypi.md"
 license = { text = "MIT" }
@@ -31,9 +31,9 @@ bench = ["xgboost>=2.0", "lightgbm>=4.3", "catboost>=1.2", "pandas>=2.1", "matpl
 dev   = ["pytest>=8.0", "pytest-cov"]
 
 [project.urls]
-Homepage   = "https://github.com/cree1116/oqboost"
-Repository = "https://github.com/cree1116/oqboost"
-Issues     = "https://github.com/cree1116/oqboost/issues"
+Homepage   = "https://github.com/cree1116/oqboost-2.0"
+Repository = "https://github.com/cree1116/oqboost-2.0"
+Issues     = "https://github.com/cree1116/oqboost-2.0/issues"
 
 [tool.setuptools]
 packages = ["oqboost"]
