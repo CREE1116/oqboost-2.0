@@ -19,8 +19,10 @@ jobs:
         include:
           - { os: ubuntu-latest, macdep: "" }    # linux x86_64
           - { os: windows-latest, macdep: "" }   # win amd64
-          - { os: macos-13, macdep: "13.0" }     # macOS x86_64 (Intel) — 러너 큐 느릴 수 있음
           - { os: macos-14, macdep: "14.0" }     # macOS arm64
+          # macOS x86_64(Intel)는 macos-13 러너가 deprecated/큐 무한대기로 릴리스를
+          # 막아 제외. Intel mac은 sdist 소스빌드(clang+libomp)로 설치. arm 러너서
+          # x86_64 cross-build은 arm libomp 링크 충돌이라 비용 대비 가치 낮음.
     steps:
       - uses: actions/checkout@v4
 
