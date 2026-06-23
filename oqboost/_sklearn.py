@@ -56,6 +56,20 @@ class _BaseOQBoost(BaseEstimator):
         self.fast_dir = fast_dir
         self.random_state = random_state
 
+    # ── pickle 직렬화: C++ 부스터를 bytes로 변환/복원 ────────────────────
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        booster = state.pop("_booster", None)
+        state["_booster_bytes"] = booster.serialize() if booster is not None else None
+        return state
+
+    def __setstate__(self, state):
+        bb = state.pop("_booster_bytes", None)
+        self.__dict__.update(state)
+        if bb is not None:
+            self._booster = _core.Booster()
+            self._booster.deserialize(bb)
+
     def _make_booster(self, objective: int):
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,

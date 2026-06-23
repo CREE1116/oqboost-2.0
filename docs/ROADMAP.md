@@ -11,7 +11,7 @@
 
 | # | 기능 | 난이도 | 메모 |
 |---|------|--------|------|
-| ☐ | **Model serialization** | 낮음 | 트리 arena를 직렬화(`__getstate__`/`__setstate__` 또는 to/from bytes). pickle 호환 + 빠른 win. **먼저 추천.** |
+| ☑ | **Model serialization** | 낮음 | ✅ 완료. C++ `serialize/deserialize`(Node POD memcpy) + 래퍼 `__getstate__/__setstate__` → pickle·joblib 호환. |
 | ☐ | **Feature importance** | 낮음 | 노드별 gain·split count 누적 → `feature_importances_`. 거의 공짜. |
 | ☐ | **Regression 안정화** | 낮음 | 현 squared-error에 Huber/quantile 손실, 출력 클리핑, init=median 옵션. |
 | ☐ | **Thread scaling** | 중 | 현 노드별 쌍병렬은 small-data서 fork-join 한계. 트리내부/배치 predict 병렬 개선, OMP 스케줄 튜닝. |

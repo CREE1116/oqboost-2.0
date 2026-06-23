@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -840,6 +841,48 @@ class Booster {
     }
     return out;
   }
+
+  // ── 직렬화 (predict에 필요한 상태만: init_score, lr, objective, trees) ──
+  // Node는 POD라 memcpy 가능. 동일 플랫폼/버전 간 pickle 용도.
+  py::bytes serialize() const {
+    std::string buf;
+    auto wr = [&](const void* p, size_t n) {
+      buf.append((const char*)p, n);
+    };
+    wr(&init_score, sizeof(double));
+    wr(&P.learning_rate, sizeof(double));
+    wr(&P.objective, sizeof(int));
+    int nt = (int)trees.size();
+    wr(&nt, sizeof(int));
+    for (auto& tr : trees) {
+      int nn = (int)tr.size();
+      wr(&nn, sizeof(int));
+      if (nn) wr(tr.data(), (size_t)nn * sizeof(Node));
+    }
+    return py::bytes(buf);
+  }
+
+  void deserialize(py::bytes b) {
+    std::string buf = b;
+    const char* p = buf.data();
+    size_t off = 0;
+    auto rd = [&](void* d, size_t n) {
+      std::memcpy(d, p + off, n);
+      off += n;
+    };
+    rd(&init_score, sizeof(double));
+    rd(&P.learning_rate, sizeof(double));
+    rd(&P.objective, sizeof(int));
+    int nt;
+    rd(&nt, sizeof(int));
+    trees.assign(nt, {});
+    for (int t = 0; t < nt; t++) {
+      int nn;
+      rd(&nn, sizeof(int));
+      trees[t].resize(nn);
+      if (nn) rd(trees[t].data(), (size_t)nn * sizeof(Node));
+    }
+  }
 };
 
 PYBIND11_MODULE(oqboost_core, m) {
@@ -854,5 +897,7 @@ PYBIND11_MODULE(oqboost_core, m) {
            py::arg("objective") = 0, py::arg("fast_dir") = 0)
       .def("fit", &Booster::fit)
       .def("predict_raw", &Booster::predict_raw)
-      .def("predict_proba", &Booster::predict_proba);
+      .def("predict_proba", &Booster::predict_proba)
+      .def("serialize", &Booster::serialize)
+      .def("deserialize", &Booster::deserialize);
 }
