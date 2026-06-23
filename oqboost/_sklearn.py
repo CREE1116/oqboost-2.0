@@ -41,6 +41,7 @@ class _BaseOQBoost(BaseEstimator):
         n_screen: int = -1,
         subsample: float = 0.8,
         colsample: float = 0.8,
+        fast_dir: int = 0,
         random_state: int = 42,
     ):
         self.n_estimators = n_estimators
@@ -52,6 +53,7 @@ class _BaseOQBoost(BaseEstimator):
         self.n_screen = n_screen
         self.subsample = subsample
         self.colsample = colsample
+        self.fast_dir = fast_dir
         self.random_state = random_state
 
     def _make_booster(self, objective: int):
@@ -61,7 +63,7 @@ class _BaseOQBoost(BaseEstimator):
             reg_lambda=self.reg_lambda, min_samples=self.min_samples,
             n_screen=self.n_screen, subsample=self.subsample,
             colsample=self.colsample, seed=int(self.random_state),
-            objective=objective,
+            objective=objective, fast_dir=self.fast_dir,
         )
 
 

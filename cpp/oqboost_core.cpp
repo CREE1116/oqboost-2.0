@@ -141,6 +141,7 @@ struct Params {
   double subsample = 1.0, colsample = 1.0;
   unsigned seed = 42;
   int objective = 0;
+  int fast_dir = 0;  // 1=H-가중 gradient 회귀 방향(그리드/BHC 생략), 0=BHC seed
 };
 
 // ─── 2D 계산용 재사용 Workspace 구조체 (thread_local 대체) ───────────────────
@@ -467,64 +468,87 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
   int kA = (int)ctrA.size(), kB = (int)ctrB.size();
   if (kA < 1 || kB < 1) return s;
   int nloc = (int)gn.size(), K = kA * kB;
+  double coefA, coefB;
 
-  // h>0 항상참 → Hc>0 ⟺ 점유. cnt 배열 제거(샘플당 scatter write 3→2).
-  ws.Gc.assign(K, 0);
-  ws.Hc.assign(K, 0);
-  for (int i = 0; i < nloc; i++) {
-    int c = cA_.bin[i] * kB + cB_.bin[i];
-    ws.Gc[c] += gn[i];
-    ws.Hc[c] += hn[i];
-  }
-
-  ws.oa.clear();
-  ws.ob.clear();
-  ws.Gs.clear();
-  ws.Hs.clear();
-  for (int a = 0; a < kA; a++) {
-    for (int b = 0; b < kB; b++) {
-      int c = a * kB + b;
-      if (ws.Hc[c] > 0.0) {
-        ws.oa.push_back(a);
-        ws.ob.push_back(b);
-        ws.Gs.push_back(ws.Gc[c]);
-        ws.Hs.push_back(ws.Hc[c]);
+  if (P.fast_dir) {
+    // H-가중 gradient 직접 회귀: t=-g/h를 두 피처에 가중 LSQ → 방향.
+    // 그리드 scatter·점유수집·정렬·BHC·LSQ 전부 생략, 9-스칼라 1패스 + 2×2.
+    double Sh = 0, Sa = 0, Sb = 0, Saa = 0, Sab = 0, Sbb = 0, Sat = 0, Sbt = 0,
+           St = 0;
+    for (int i = 0; i < nloc; i++) {
+      double xa = cA_.col[i], xb = cB_.col[i];
+      if (has_nan && (std::isnan(xa) || std::isnan(xb))) continue;
+      double gi = gn[i], hi = hn[i];
+      Sh += hi; Sa += hi * xa; Sb += hi * xb;
+      Saa += hi * xa * xa; Sab += hi * xa * xb; Sbb += hi * xb * xb;
+      Sat += -gi * xa; Sbt += -gi * xb; St += -gi;  // h·t=-g
+    }
+    if (Sh < 1e-12) return s;
+    double A00 = Saa - Sa * Sa / Sh + P.reg_lambda,
+           A01 = Sab - Sa * Sb / Sh,
+           A11 = Sbb - Sb * Sb / Sh + P.reg_lambda;
+    double b0 = Sat - Sa * St / Sh, b1 = Sbt - Sb * St / Sh;
+    double det = A00 * A11 - A01 * A01;
+    if (std::fabs(det) < 1e-12) return s;
+    double dA = (A11 * b0 - A01 * b1) / det, dB = (A00 * b1 - A01 * b0) / det;
+    double nrm = std::sqrt(dA * dA + dB * dB);
+    if (nrm < 1e-12) return s;
+    coefA = dA / nrm; coefB = dB / nrm;
+  } else {
+    // h>0 항상참 → Hc>0 ⟺ 점유. cnt 배열 제거(샘플당 scatter write 3→2).
+    ws.Gc.assign(K, 0);
+    ws.Hc.assign(K, 0);
+    for (int i = 0; i < nloc; i++) {
+      int c = cA_.bin[i] * kB + cB_.bin[i];
+      ws.Gc[c] += gn[i];
+      ws.Hc[c] += hn[i];
+    }
+    ws.oa.clear();
+    ws.ob.clear();
+    ws.Gs.clear();
+    ws.Hs.clear();
+    for (int a = 0; a < kA; a++) {
+      for (int b = 0; b < kB; b++) {
+        int c = a * kB + b;
+        if (ws.Hc[c] > 0.0) {
+          ws.oa.push_back(a);
+          ws.ob.push_back(b);
+          ws.Gs.push_back(ws.Gc[c]);
+          ws.Hs.push_back(ws.Hc[c]);
+        }
       }
     }
-  }
-  int S = (int)ws.oa.size();
-  if (S < 2) return s;
-
-  ws.so.resize(S);
-  std::iota(ws.so.begin(), ws.so.end(), 0);
-  std::sort(ws.so.begin(), ws.so.end(), [&](int a, int b) {
-    return -ws.Gs[a] / (ws.Hs[a] + P.reg_lambda) <
-           -ws.Gs[b] / (ws.Hs[b] + P.reg_lambda);
-  });
-  double base = gain_term(Gp, Hp, P.reg_lambda), GL = 0, HL = 0, bg = 0;
-  int bk = -1;
-  for (int ki = 0; ki + 1 < S; ki++) {
-    GL += ws.Gs[ws.so[ki]];
-    HL += ws.Hs[ws.so[ki]];
-    double gv = gain_term(GL, HL, P.reg_lambda) +
-                gain_term(Gp - GL, Hp - HL, P.reg_lambda) - base;
-    if (gv > bg) {
-      bg = gv;
-      bk = ki;
+    int S = (int)ws.oa.size();
+    if (S < 2) return s;
+    ws.so.resize(S);
+    std::iota(ws.so.begin(), ws.so.end(), 0);
+    std::sort(ws.so.begin(), ws.so.end(), [&](int a, int b) {
+      return -ws.Gs[a] / (ws.Hs[a] + P.reg_lambda) <
+             -ws.Gs[b] / (ws.Hs[b] + P.reg_lambda);
+    });
+    double base = gain_term(Gp, Hp, P.reg_lambda), GL = 0, HL = 0, bg = 0;
+    int bk = -1;
+    for (int ki = 0; ki + 1 < S; ki++) {
+      GL += ws.Gs[ws.so[ki]];
+      HL += ws.Hs[ws.so[ki]];
+      double gv = gain_term(GL, HL, P.reg_lambda) +
+                  gain_term(Gp - GL, Hp - HL, P.reg_lambda) - base;
+      if (gv > bg) {
+        bg = gv;
+        bk = ki;
+      }
     }
+    if (bk < 0) return s;
+    ws.lab.assign(S, 1);
+    for (int j = 0; j <= bk; j++) ws.lab[ws.so[j]] = 0;
+    ws.cA.resize(S);
+    ws.cB.resize(S);
+    for (int t = 0; t < S; t++) {
+      ws.cA[t] = ctrA[ws.oa[t]];
+      ws.cB[t] = ctrB[ws.ob[t]];
+    }
+    if (!lsq_separator(ws.cA, ws.cB, ws.lab, ws.Hs, coefA, coefB)) return s;
   }
-  if (bk < 0) return s;
-
-  ws.lab.assign(S, 1);
-  for (int j = 0; j <= bk; j++) ws.lab[ws.so[j]] = 0;
-  ws.cA.resize(S);
-  ws.cB.resize(S);
-  for (int t = 0; t < S; t++) {
-    ws.cA[t] = ctrA[ws.oa[t]];
-    ws.cB[t] = ctrB[ws.ob[t]];
-  }
-  double coefA, coefB;
-  if (!lsq_separator(ws.cA, ws.cB, ws.lab, ws.Hs, coefA, coefB)) return s;
 
   ws.proj.resize(nloc);
   if (!has_nan) {
@@ -705,7 +729,7 @@ class Booster {
   double init_score = 0;
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
-          double colsample, unsigned seed, int objective) {
+          double colsample, unsigned seed, int objective, int fast_dir) {
     P.n_estimators = n_estimators;
     P.learning_rate = learning_rate;
     P.max_depth = max_depth;
@@ -717,6 +741,7 @@ class Booster {
     P.colsample = colsample;
     P.seed = seed;
     P.objective = objective;
+    P.fast_dir = fast_dir;
   }
 
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
@@ -820,13 +845,13 @@ class Booster {
 PYBIND11_MODULE(oqboost_core, m) {
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
-                    unsigned, int>(),
+                    unsigned, int, int>(),
            py::arg("n_estimators") = 60, py::arg("learning_rate") = 0.12,
            py::arg("max_depth") = 4, py::arg("max_bins") = 64,
            py::arg("reg_lambda") = 1.0, py::arg("min_samples") = 10,
            py::arg("n_screen") = -1, py::arg("subsample") = 1.0,
            py::arg("colsample") = 1.0, py::arg("seed") = 42,
-           py::arg("objective") = 0)
+           py::arg("objective") = 0, py::arg("fast_dir") = 0)
       .def("fit", &Booster::fit)
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba);
