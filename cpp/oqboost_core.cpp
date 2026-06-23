@@ -63,6 +63,28 @@ static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
     return B;
 }
 
+// ─── 전역 feature-feature |corr| (1회). 강상관 쌍 = oblique서 redundant ─────
+static std::vector<float> feature_corr(const double* X, int n, int d) {
+    std::vector<double> mean(d, 0), sd(d, 0);
+    for (int f = 0; f < d; f++) {
+        double m = 0; for (int i = 0; i < n; i++) m += X[(size_t)i*d+f]; m /= n;
+        double v = 0; for (int i = 0; i < n; i++) { double t = X[(size_t)i*d+f]-m; v += t*t; }
+        mean[f] = m; sd[f] = std::sqrt(v / n);
+    }
+    std::vector<float> C((size_t)d*d, 0.f);
+    for (int a = 0; a < d; a++) {
+        C[(size_t)a*d+a] = 1.f;
+        for (int b = a+1; b < d; b++) {
+            if (sd[a] < 1e-12 || sd[b] < 1e-12) continue;
+            double cov = 0;
+            for (int i = 0; i < n; i++) cov += (X[(size_t)i*d+a]-mean[a])*(X[(size_t)i*d+b]-mean[b]);
+            float r = (float)std::fabs(cov / n / (sd[a]*sd[b]));
+            C[(size_t)a*d+b] = r; C[(size_t)b*d+a] = r;
+        }
+    }
+    return C;
+}
+
 // ─── 분할/노드 ───────────────────────────────────────────────────────────────
 struct Split { double gain=0; int type=0,fA=-1,fB=-1; double thr=0,coefA=0,coefB=0,bias=0; };
 struct Node {
@@ -74,6 +96,7 @@ struct Params {
     double learning_rate=0.12, reg_lambda=1.0;
     int n_screen=-1; double subsample=1.0, colsample=1.0;
     unsigned seed=42; int objective=0;
+    double corr_skip=1.01;   // |feature-corr|>=이값 쌍은 oblique서 스킵 (1.01=off)
 };
 
 // ─── SIS 스크리닝 ────────────────────────────────────────────────────────────
@@ -208,9 +231,13 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
 
 static Split eval_2d(const std::vector<FCache>& C, const std::vector<std::vector<double>>& centers,
                      const std::vector<double>& gn, const std::vector<double>& hn,
-                     double Gp, double Hp, const Params& P) {
+                     double Gp, double Hp, const Params& P, const float* corr, int d) {
     int nf=(int)C.size(); std::vector<std::pair<int,int>> pr; pr.reserve(nf*(nf-1)/2);
-    for(int a=0;a<nf;a++) for(int b=a+1;b<nf;b++) pr.emplace_back(a,b);
+    for(int a=0;a<nf;a++) for(int b=a+1;b<nf;b++){
+        // 강상관 쌍은 oblique 평면이 1D로 붕괴 → redundant, 스킵
+        if(corr && corr[(size_t)C[a].f*d+C[b].f] >= P.corr_skip) continue;
+        pr.emplace_back(a,b);
+    }
     int np=(int)pr.size(); std::vector<Split> res(np);
     #pragma omp parallel for schedule(dynamic,4)
     for(int p=0;p<np;p++)
@@ -224,7 +251,8 @@ static Split eval_2d(const std::vector<FCache>& C, const std::vector<std::vector
 static int build(std::vector<Node>& arena, const double* X, int d, const std::vector<u16>& binidx,
                  const std::vector<std::vector<double>>& centers,
                  const std::vector<double>& g, const std::vector<double>& h,
-                 std::vector<int> idx, int depth, const Params& P, std::mt19937& rng) {
+                 std::vector<int> idx, int depth, const Params& P, std::mt19937& rng,
+                 const float* corr) {
     double Gp=0,Hp=0; for(int i:idx){Gp+=g[i];Hp+=h[i];}
     int ni=(int)arena.size(); arena.push_back(Node()); arena[ni].weight=-Gp/(Hp+P.reg_lambda);
     if(depth>=P.max_depth||(int)idx.size()<P.min_samples) return ni;
@@ -240,7 +268,7 @@ static int build(std::vector<Node>& arena, const double* X, int d, const std::ve
     std::vector<double> gn(idx.size()), hn(idx.size());
     for(size_t i=0;i<idx.size();i++){gn[i]=g[idx[i]]; hn[i]=h[idx[i]];}
     Split s1=eval_1d(C,centers,gn,hn,Gp,Hp,P);
-    Split s2=eval_2d(C,centers,gn,hn,Gp,Hp,P);
+    Split s2=eval_2d(C,centers,gn,hn,Gp,Hp,P,corr,d);
     Split bs=(s2.gain>=s1.gain)?s2:s1;
     if(bs.gain<=1e-6||bs.type==0) return ni;
 
@@ -253,8 +281,8 @@ static int build(std::vector<Node>& arena, const double* X, int d, const std::ve
     if(li.empty()||ri.empty()) return ni;
     arena[ni].is_leaf=false; arena[ni].type=bs.type; arena[ni].fA=bs.fA; arena[ni].fB=bs.fB;
     arena[ni].thr=bs.thr; arena[ni].coefA=bs.coefA; arena[ni].coefB=bs.coefB; arena[ni].bias=bs.bias;
-    int L=build(arena,X,d,binidx,centers,g,h,std::move(li),depth+1,P,rng);
-    int R=build(arena,X,d,binidx,centers,g,h,std::move(ri),depth+1,P,rng);
+    int L=build(arena,X,d,binidx,centers,g,h,std::move(li),depth+1,P,rng,corr);
+    int R=build(arena,X,d,binidx,centers,g,h,std::move(ri),depth+1,P,rng,corr);
     arena[ni].left=L; arena[ni].right=R; return ni;
 }
 
@@ -270,10 +298,12 @@ class Booster {
 public:
     Params P; std::vector<std::vector<Node>> trees; double init_score=0;
     Booster(int n_estimators,double learning_rate,int max_depth,int max_bins,double reg_lambda,
-            int min_samples,int n_screen,double subsample,double colsample,unsigned seed,int objective){
+            int min_samples,int n_screen,double subsample,double colsample,unsigned seed,int objective,
+            double corr_skip){
         P.n_estimators=n_estimators;P.learning_rate=learning_rate;P.max_depth=max_depth;
         P.max_bins=max_bins;P.reg_lambda=reg_lambda;P.min_samples=min_samples;P.n_screen=n_screen;
         P.subsample=subsample;P.colsample=colsample;P.seed=seed;P.objective=objective;
+        P.corr_skip=corr_skip;
     }
 
     void fit(py::array_t<double,py::array::c_style|py::array::forcecast> Xa,
@@ -282,6 +312,9 @@ public:
         int n=(int)Xb.shape[0], d=(int)Xb.shape[1];
         const double* X=(const double*)Xb.ptr; const double* y=(const double*)yb.ptr;
         Bins B=precompute_bins(X,n,d,P.max_bins);    // 히스토그램 binning 1회
+        std::vector<float> corr;                     // 강상관 쌍 스킵용 (1회)
+        if(P.corr_skip<=1.0) corr=feature_corr(X,n,d);
+        const float* corrp = corr.empty()?nullptr:corr.data();
 
         double ybar=0; for(int i=0;i<n;i++) ybar+=y[i]; ybar/=n;
         if(P.objective==0){double y2=std::min(std::max(ybar,1e-6),1-1e-6); init_score=std::log(y2/(1-y2));}
@@ -297,7 +330,7 @@ public:
             if(P.subsample<1.0){std::shuffle(all.begin(),all.end(),rng); rows.assign(all.begin(),all.begin()+n_sub);}
             else rows=all;
             std::vector<Node> arena; arena.reserve(256);
-            build(arena,X,d,B.idx,B.centers,g,h,rows,0,P,rng);
+            build(arena,X,d,B.idx,B.centers,g,h,rows,0,P,rng,corrp);
             for(int i=0;i<n;i++) raw[i]+=P.learning_rate*predict_one(arena,X+(size_t)i*d);
             trees.push_back(std::move(arena));
         }
@@ -325,11 +358,11 @@ public:
 
 PYBIND11_MODULE(oqboost_core, m) {
     py::class_<Booster>(m,"Booster")
-        .def(py::init<int,double,int,int,double,int,int,double,double,unsigned,int>(),
+        .def(py::init<int,double,int,int,double,int,int,double,double,unsigned,int,double>(),
              py::arg("n_estimators")=60, py::arg("learning_rate")=0.12, py::arg("max_depth")=4,
              py::arg("max_bins")=64, py::arg("reg_lambda")=1.0, py::arg("min_samples")=10,
              py::arg("n_screen")=-1, py::arg("subsample")=1.0, py::arg("colsample")=1.0,
-             py::arg("seed")=42, py::arg("objective")=0)
+             py::arg("seed")=42, py::arg("objective")=0, py::arg("corr_skip")=1.01)
         .def("fit",&Booster::fit)
         .def("predict_raw",&Booster::predict_raw)
         .def("predict_proba",&Booster::predict_proba);
