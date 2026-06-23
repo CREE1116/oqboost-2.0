@@ -71,6 +71,13 @@ clf.coefficient_importances_     # Σ gain·|coef| (direction-weighted)
 clf.interaction_importances_     # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
 phi = clf.explain(X_test)        # (n, n_features) additive contributions
                                  # phi.sum(axis=1) == raw prediction − base (like SHAP)
+
+# Plots (pip install oqboost[plot])
+import oqboost.plot as oqp
+oqp.plot_importance(clf)              # gain / gain·|coef| bar
+oqp.plot_interactions(clf)           # pairwise-interaction heatmap
+oqp.plot_explanation(clf, x)         # one-sample additive contributions
+oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 ```
 
 ## Key hyperparameters
