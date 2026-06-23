@@ -528,8 +528,10 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
 
   ws.proj.resize(nloc);
   if (!has_nan) {
-// NaN이 없는 경우 컴파일러 자동 벡터화 강제 가이드
+// NaN 없으면 벡터화 힌트 (MSVC /openmp는 omp simd 미지원 → GCC/Clang만)
+#if defined(__GNUC__) || defined(__clang__)
 #pragma omp simd
+#endif
     for (int i = 0; i < nloc; i++) {
       ws.proj[i] = coefA * cA_.col[i] + coefB * cB_.col[i];
     }
