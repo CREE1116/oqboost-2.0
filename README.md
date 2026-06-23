@@ -5,8 +5,8 @@
 OQBoost replaces axis-aligned splits with **oblique hyperplanes over feature pairs**
 (`a·u + b·v < t`), capturing diagonal and interaction boundaries that axis-aligned
 boosters approximate with coarse staircases. Version 2.0 is a ground-up redesign: a
-histogram-binned 2D-oblique core that finds split directions via a BHC-seeded
-H-weighted least-squares fit — no random projections, no numerical search.
+histogram-binned 2D-oblique core that finds split directions by H-weighted
+least-squares regression of the gradient — no random projections, no numerical search.
 
 > **Lineage:** OQBoost 1.x ([cree1116/OQBoost](https://github.com/cree1116/OQBoost))
 > found oblique directions with a Deterministic Gradient-Covariance Scan (DGCS).
@@ -20,7 +20,8 @@ H-weighted least-squares fit — no random projections, no numerical search.
 </p>
 
 Decision boundaries on synthetic 2D problems. OQBoost draws **smooth diagonal**
-boundaries (Spiral, XOR) where axis-aligned XGBoost collapses into blocky staircases.
+boundaries (Spiral, XOR) with far fewer splits than the blocky staircases of
+axis-aligned boosters.
 
 ---
 
@@ -29,7 +30,7 @@ boundaries (Spiral, XOR) where axis-aligned XGBoost collapses into blocky stairc
 | Feature | OQBoost 2.0 |
 |---------|-------------|
 | Split type | Oblique — linear combination of **two** features per node |
-| Direction finding | BHC-seeded H-weighted least squares (2×2, O(1)) — deterministic |
+| Direction finding | H-weighted gradient regression (2×2, O(1)) — deterministic, `fast_dir` |
 | Higher-order interactions | Composed via tree depth + boosting (2D atoms) |
 | Categorical features | Integer codes through the oblique path (no special encoding) |
 | Missing values | Native — NaN routed to a dedicated learned bin (no imputation needed) |
@@ -71,14 +72,15 @@ Pipelines, GridSearchCV).
 ## Benchmark
 
 Optuna-tuned (each model gets the same trial budget), diverse OpenML binary datasets,
-held-out test ROC-AUC. Reproduce with:
+held-out test metrics. Reproduce with:
 
 ```bash
-python scripts/benchmark_optuna.py 30 15      # tunes all 4 models, caches best params
+python scripts/optimize.py 30 12     # tune all 4 models → docs/optuna_params.json
+python scripts/benchmark.py          # evaluate from cached params
 ```
 
-Best params are cached to `docs/optuna_params.json` and reused on re-runs (pass
-`--retune` to re-search), so the table below is fully reproducible.
+Tuning (`optimize.py`) and evaluation (`benchmark.py`) are separate; best params are
+cached to `docs/optuna_params.json` and reused, so the table below is reproducible.
 
 <p align="center">
   <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test AUC across OpenML datasets" width="820">
@@ -108,9 +110,9 @@ smoothest boundary of all four boosters.
    the gradient/hessian.
 2. **Histogram binning** once at fit: per-feature quantile bins precomputed, so node
    split search is sort-free O(n) accumulation.
-3. **2D-oblique split**: for each feature pair, accumulate G/H on the bin grid, seed a
-   binary partition by leaf-weight, fit a direction with H-weighted least squares, then
-   scan the projection for the threshold. Best of 1D vs 2D by gain.
+3. **2D-oblique split**: for each feature pair, find the direction by H-weighted
+   least-squares regression of the Newton target (`-g/h`) on the two raw features
+   (one 2×2 solve), then scan the projection for the threshold. Best of 1D vs 2D by gain.
 4. Higher-order interactions come from **depth + boosting**, not wider splits — 2D is
    the bias/variance and search-cost sweet spot.
 
