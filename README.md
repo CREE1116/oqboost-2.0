@@ -73,16 +73,19 @@ Pipelines, GridSearchCV).
 
 ## Benchmark
 
-Optuna-tuned (each model gets the same trial budget), diverse OpenML binary datasets,
-held-out test metrics. Reproduce with:
+Optuna-tuned (each model gets the same trial budget), diverse OpenML datasets across
+**binary, multiclass, and regression** tasks, held-out test metrics. Reproduce with:
 
 ```bash
-python scripts/optimize.py 30 12     # tune all 4 models → docs/optuna_params.json
+python scripts/optimize.py 30 10     # tune all 4 models × 3 task suites → docs/optuna_params.json
 python scripts/benchmark.py          # evaluate from cached params
+# limit to one task type:  python scripts/optimize.py 30 10 --tasks=regression
 ```
 
 Tuning (`optimize.py`) and evaluation (`benchmark.py`) are separate; best params are
-cached to `docs/optuna_params.json` and reused, so the table below is reproducible.
+cached to `docs/optuna_params.json` and reused. Metrics per task: binary/multiclass use
+ROC-AUC (OvR macro for multiclass) plus accuracy / balanced accuracy (decision threshold
+tuned on validation, uniformly across models); regression uses R² / RMSE / MAE.
 
 <p align="center">
   <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test AUC across OpenML datasets" width="820">

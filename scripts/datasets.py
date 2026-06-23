@@ -106,6 +106,40 @@ def _load_openml_one(did, name, max_rows):
     return name, X, np.asarray(y)
 
 
+def _load_openml_multi(did, name, max_rows):
+    """다중클래스: 클래스 수 제한 없음. y는 0..K-1 정수 코드."""
+    data = fetch_openml(data_id=did, as_frame=True, parser="auto")
+    df = data.frame
+    tcol = data.target_names[0]
+    yraw = df[tcol].astype(str)
+    classes = sorted(yraw.unique())
+    if len(classes) < 3:
+        raise ValueError(f"not multiclass ({len(classes)} classes)")
+    code = {c: i for i, c in enumerate(classes)}
+    y = yraw.map(code).values.astype(int)
+    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    X, y = _subsample(X, y, max_rows)
+    return name, X, np.asarray(y)
+
+
+def _load_openml_reg(did, name, max_rows):
+    """회귀: 수치형 타깃. 표준화 안 함(모델이 스케일 불변)."""
+    data = fetch_openml(data_id=did, as_frame=True, parser="auto")
+    df = data.frame
+    tcol = data.target_names[0]
+    y = np.asarray(pd_to_num(df[tcol]), dtype=float)
+    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    m = np.isfinite(y)
+    X, y = X[m], y[m]
+    X, y = _subsample(X, y, max_rows)
+    return name, X, y
+
+
+def pd_to_num(s):
+    import pandas as pd
+    return pd.to_numeric(s, errors="coerce")
+
+
 def load_real(max_rows=3000):
     """소형 스모크 세트 (5개)."""
     out = []
@@ -127,6 +161,39 @@ OPENML_SUITE = [
     (1462, "banknote"), (1464, "blood_transfusion"), (1494, "qsar_biodeg"),
     (1067, "kc1"), (3, "kr_vs_kp"), (4534, "phishing"),
     (1471, "eeg_eye_state"), (1487, "ozone"), (1480, "ilpd"),
+    (1063, "kc2"), (1050, "pc3"), (1068, "pc1"), (40701, "churn"),
+    (1504, "steel_plates_bin"), (1494, "qsar"), (151, "electricity"),
+    (40983, "wilt"), (1046, "mozilla4"), (1049, "pc4"),
+]
+
+# 다중클래스 (클래스 수·차원·도메인 다양)
+OPENML_MULTICLASS = [
+    (54, "vehicle"),          # 4cls d18
+    (23, "cmc"),              # 3cls d9
+    (188, "eucalyptus"),      # 5cls d19
+    (181, "yeast"),           # 10cls d8
+    (40670, "dna"),           # 3cls d180
+    (40982, "steel_plates"),  # 7cls d27
+    (1497, "wall_robot"),     # 4cls d24
+    (12, "mfeat_factors"),    # 10cls d216
+    (1468, "cnae9"),          # 9cls d856 (고차원)
+    (458, "analcatdata_auth"),# 4cls
+    (60, "waveform"),         # 3cls d40
+    (1481, "kr_vs_k"),        # 18cls
+]
+
+# 회귀 (sklearn 내장 + OpenML delve/friedman 등 다양)
+OPENML_REGRESSION = [
+    (537, "houses"),       # d8
+    (564, "fried"),        # friedman d10
+    (227, "cpu_small"),    # d12
+    (574, "house_16H"),    # d16
+    (308, "puma32H"),      # d32
+    (296, "ailerons"),     # d40
+    (215, "2dplanes"),     # d10
+    (197, "cpu_act"),      # d21
+    (344, "mv"),           # d10 (혼합형)
+    (4544, "music_origin"),# d116 고차원
 ]
 
 
@@ -141,4 +208,56 @@ def load_openml_suite(max_rows=8000, include_breast=True):
             out.append(_load_openml_one(did, name, max_rows))
         except Exception as e:
             print(f"  [skip] {name}({did}): {e}")
+    return out
+
+
+def load_multiclass_suite(max_rows=8000, include_builtin=True):
+    """다중클래스 데이터셋. 반환: list of (name, X, y)."""
+    out = []
+    if include_builtin:
+        from sklearn.datasets import load_digits, load_wine
+        dg = load_digits(); out.append(("digits", dg.data.astype(float), dg.target.astype(int)))
+        wn = load_wine();   out.append(("wine", wn.data.astype(float), wn.target.astype(int)))
+    for did, name in OPENML_MULTICLASS:
+        try:
+            out.append(_load_openml_multi(did, name, max_rows))
+        except Exception as e:
+            print(f"  [skip] {name}({did}): {e}")
+    return out
+
+
+def load_regression_suite(max_rows=8000, include_builtin=True):
+    """회귀 데이터셋. 반환: list of (name, X, y)."""
+    out = []
+    if include_builtin:
+        from sklearn.datasets import load_diabetes, fetch_california_housing
+        db = load_diabetes(); out.append(("diabetes_reg", db.data.astype(float), db.target.astype(float)))
+        try:
+            ca = fetch_california_housing()
+            X, y = _subsample(ca.data.astype(float), ca.target.astype(float), max_rows)
+            out.append(("california", X, y))
+        except Exception as e:
+            print(f"  [skip] california: {e}")
+    for did, name in OPENML_REGRESSION:
+        try:
+            out.append(_load_openml_reg(did, name, max_rows))
+        except Exception as e:
+            print(f"  [skip] {name}({did}): {e}")
+    return out
+
+
+# task별 loader 레지스트리 — optimize/benchmark가 참조.
+SUITES = {
+    "binary":     load_openml_suite,
+    "multiclass": load_multiclass_suite,
+    "regression": load_regression_suite,
+}
+
+
+def load_tasks(tasks=("binary", "multiclass", "regression"), max_rows=8000):
+    """선택 task들의 데이터셋을 (name, X, y, task)로 태깅해 반환."""
+    out = []
+    for t in tasks:
+        for name, X, y in SUITES[t](max_rows=max_rows):
+            out.append((name, X, y, t))
     return out
