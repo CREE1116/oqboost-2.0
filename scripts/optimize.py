@@ -20,12 +20,14 @@ import numpy as np
 import optuna
 from sklearn.metrics import roc_auc_score, r2_score
 
-from datasets import SUITES
-from tuning import models_for, PARAMS_JSON, SEED, split_tvt
+from datasets import SUITES, CAT_INDEX
+from tuning import (models_for, PARAMS_JSON, SEED, split_tvt,
+                    inject_categorical, model_inputs)
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 RETUNE   = "--retune" in sys.argv
+NO_CAT   = "--no-categorical" in sys.argv   # 기본: 네이티브 범주 ON
 N_TRIALS = int(ARGS[0]) if len(ARGS) > 0 else 30
 N_DATA   = int(ARGS[1]) if len(ARGS) > 1 else 10
 _tflag = [a for a in sys.argv if a.startswith("--tasks")]
@@ -59,16 +61,21 @@ def main():
         print(f"\n=== task: {task} ({len(data)} datasets) ===")
         for name, X, y in data:
             Xtr, Xva, _, ytr, yva, _ = split_tvt(X, y, stratify=strat)
-            line = f"  {name:20s} n={len(y):5d} d={X.shape[1]:4d}  "
+            cat = [] if NO_CAT else CAT_INDEX.get(name, [])
+            cards = {j: int(round(X[:, j].max())) + 1 for j in cat}
+            line = f"  {name:20s} n={len(y):5d} d={X.shape[1]:4d} cat={len(cat):2d}  "
             for mname, (space, Model) in models.items():
                 key = cache.get(name, {})
                 if not RETUNE and key.get(mname) is not None and key.get("_task", "binary") == task:
                     line += f"{mname}=cached  "
                     continue
+                Xtr_m = model_inputs(mname, Xtr, cat, cards)
+                Xva_m = model_inputs(mname, Xva, cat, cards)
                 t0 = time.perf_counter()
-                def obj(t):
-                    m = Model(**space(t)); m.fit(Xtr, ytr)
-                    return val_score(task, m, Xva, yva)
+                def obj(t, _m=mname, _M=Model, _s=space, _Xt=Xtr_m, _Xv=Xva_m):
+                    kw = _s(t); inject_categorical(_m, kw, cat)
+                    m = _M(**kw); m.fit(_Xt, ytr)
+                    return val_score(task, m, _Xv, yva)
                 study = optuna.create_study(
                     direction="maximize", sampler=optuna.samplers.TPESampler(seed=SEED))
                 study.optimize(obj, n_trials=N_TRIALS, show_progress_bar=False)

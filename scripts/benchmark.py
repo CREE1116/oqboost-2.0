@@ -22,12 +22,13 @@ import pandas as pd
 from sklearn.metrics import (roc_auc_score, accuracy_score, balanced_accuracy_score,
                              r2_score, mean_squared_error, mean_absolute_error)
 
-from datasets import SUITES
-from tuning import models_for, COLORS, PARAMS_JSON, build, split_tvt
+from datasets import SUITES, CAT_INDEX
+from tuning import models_for, COLORS, PARAMS_JSON, build, split_tvt, model_inputs
 
 _tflag = [a for a in sys.argv if a.startswith("--tasks")]
 TASKS = (_tflag[0].split("=")[1].split(",") if _tflag and "=" in _tflag[0]
          else ["binary", "multiclass", "regression"])
+NO_CAT = "--no-categorical" in sys.argv   # 기본: 네이티브 범주 ON
 PRIMARY = {"binary": "auc", "multiclass": "auc", "regression": "r2"}
 
 
@@ -84,17 +85,22 @@ def main():
             if name not in cache:
                 continue
             Xtr, Xva, Xtt, ytr, yva, ytt = split_tvt(X, y, stratify=strat)
+            cat = [] if NO_CAT else CAT_INDEX.get(name, [])
+            cards = {j: int(round(X[:, j].max())) + 1 for j in cat}
             for mname in models_for(task):
                 params = cache.get(name, {}).get(mname)
                 if params is None:
                     continue
-                m = build(mname, params, task=task)
+                m = build(mname, params, task=task, cat_idx=cat)
+                Xtr_m = model_inputs(mname, Xtr, cat, cards)
+                Xva_m = model_inputs(mname, Xva, cat, cards)
+                Xtt_m = model_inputs(mname, Xtt, cat, cards)
                 if task == "regression":
-                    met = eval_regression(m, Xtr, ytr, Xtt, ytt)
+                    met = eval_regression(m, Xtr_m, ytr, Xtt_m, ytt)
                 else:
-                    met = eval_classification(task, m, Xtr, ytr, Xva, yva, Xtt, ytt)
+                    met = eval_classification(task, m, Xtr_m, ytr, Xva_m, yva, Xtt_m, ytt)
                 rows.append(dict(task=task, dataset=name, model=mname, **met))
-            print(f"  done [{task}] {name}")
+            print(f"  done [{task}] {name}  (cat={len(cat)})")
 
     df = pd.DataFrame(rows)
     out = PARAMS_JSON.parent

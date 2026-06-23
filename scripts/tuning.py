@@ -60,6 +60,7 @@ def cat_params(t):
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
                 depth=t.suggest_int("depth", 3, 8),
                 l2_leaf_reg=t.suggest_float("l2_leaf_reg", 0.5, 10.0, log=True),
+                bootstrap_type="Bernoulli",  # subsample 활성화를 위해 추가
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 verbose=False, random_seed=SEED, allow_writing_files=False)
 
@@ -108,6 +109,7 @@ def cat_reg_params(t):
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
                 depth=t.suggest_int("depth", 3, 8),
                 l2_leaf_reg=t.suggest_float("l2_leaf_reg", 0.5, 10.0, log=True),
+                bootstrap_type="Bernoulli",  # subsample 활성화를 위해 추가
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 verbose=False, random_seed=SEED, allow_writing_files=False)
 
@@ -126,10 +128,48 @@ def models_for(task):
     return REGISTRY[task]
 
 
-def build(mname, params, task="binary"):
-    """저장된 best_params(dict)로 모델 인스턴스 생성."""
+def inject_categorical(mname, kw, cat_idx):
+    """모델별 네이티브 범주 처리 활성화 (kw 변형)."""
+    if not cat_idx:
+        return kw
+    if mname == "OQBoost":
+        kw["categorical_features"] = list(cat_idx)
+    elif mname == "XGBoost":
+        kw["enable_categorical"] = True
+    elif mname == "CatBoost":
+        kw["cat_features"] = list(cat_idx)
+    # LightGBM: category dtype DataFrame을 fit서 자동 감지
+    return kw
+
+
+def model_inputs(mname, X, cat_idx, cards=None):
+    """모델별 fit/predict 입력. 범주 인덱스 있으면 라이브러리별 형식으로 변환.
+
+    OQBoost=numpy(인덱스로 처리), XGB/LGB=category dtype DataFrame,
+    CatBoost=범주컬럼 문자열 DataFrame. `cards`(feature→레벨수)를 주면 category를
+    range(card)로 고정 — train/test 분할 간 category↔code 매핑 정렬(미지 레벨 에러 방지)."""
+    X = np.asarray(X, dtype=float)
+    if not cat_idx or mname == "OQBoost":
+        return np.ascontiguousarray(X)
+    import pandas as pd
+    df = pd.DataFrame(X)
+    for j in cat_idx:
+        codes = df[j].round().astype("int64")
+        if mname == "CatBoost":
+            df[j] = codes.astype(str)
+        elif cards is not None and j in cards:
+            df[j] = pd.Categorical(codes, categories=range(cards[j]))
+        else:
+            df[j] = codes.astype("category")
+    return df
+
+
+def build(mname, params, task="binary", cat_idx=None):
+    """저장된 best_params(dict)로 모델 인스턴스 생성 (선택적 네이티브 범주)."""
     space, Model = REGISTRY[task][mname]
-    return Model(**space(optuna.trial.FixedTrial(params)))
+    kw = space(optuna.trial.FixedTrial(params))
+    inject_categorical(mname, kw, cat_idx or [])
+    return Model(**kw)
 
 
 def split_tvt(X, y, seed=SEED, stratify=True):

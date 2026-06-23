@@ -80,16 +80,24 @@ def _subsample(X, y, max_rows=3000, seed=42):
     return X[idx], y[idx]
 
 
+# 데이터셋명 → 범주형 컬럼 인덱스. 로더가 채우고, optimize/benchmark가 참조해
+# 각 모델의 네이티브 범주 처리를 켠다.
+CAT_INDEX = {}
+
+
 def _encode(df):
+    """OrdinalEncode object/category 컬럼. 반환: (X, 범주컬럼 인덱스 리스트)."""
     import pandas as pd
     X = np.zeros((len(df), df.shape[1]), dtype=float)
+    cat_idx = []
     for j, col in enumerate(df.columns):
         s = df[col]
         if s.dtype.name in ("category", "object") or not np.issubdtype(s.dtype, np.number):
             X[:, j] = OrdinalEncoder().fit_transform(s.astype(str).values.reshape(-1, 1)).ravel()
+            cat_idx.append(j)
         else:
             X[:, j] = pd.to_numeric(s, errors="coerce").fillna(0).values
-    return X
+    return X, cat_idx
 
 
 def _load_openml_one(did, name, max_rows):
@@ -101,8 +109,10 @@ def _load_openml_one(did, name, max_rows):
     if len(classes) != 2:
         raise ValueError(f"not binary ({len(classes)} classes)")
     y = (yraw == classes[-1]).astype(int).values
-    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    Xe, cat = _encode(df.drop(columns=[tcol]))
+    X = np.nan_to_num(Xe)
     X, y = _subsample(X, y, max_rows)
+    CAT_INDEX[name] = cat
     return name, X, np.asarray(y)
 
 
@@ -117,8 +127,10 @@ def _load_openml_multi(did, name, max_rows):
         raise ValueError(f"not multiclass ({len(classes)} classes)")
     code = {c: i for i, c in enumerate(classes)}
     y = yraw.map(code).values.astype(int)
-    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    Xe, cat = _encode(df.drop(columns=[tcol]))
+    X = np.nan_to_num(Xe)
     X, y = _subsample(X, y, max_rows)
+    CAT_INDEX[name] = cat
     return name, X, np.asarray(y)
 
 
@@ -128,10 +140,12 @@ def _load_openml_reg(did, name, max_rows):
     df = data.frame
     tcol = data.target_names[0]
     y = np.asarray(pd_to_num(df[tcol]), dtype=float)
-    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    Xe, cat = _encode(df.drop(columns=[tcol]))
+    X = np.nan_to_num(Xe)
     m = np.isfinite(y)
     X, y = X[m], y[m]
     X, y = _subsample(X, y, max_rows)
+    CAT_INDEX[name] = cat
     return name, X, y
 
 
