@@ -1,16 +1,20 @@
 """
 setup.py — OQBoost 2.0 빌드. pybind11 확장(oqboost.oqboost_core)을 컴파일한다.
-OpenMP: macOS는 libomp(brew), Linux는 -fopenmp.
+OpenMP: macOS=libomp(brew), Linux=-fopenmp(libgomp), Windows=/openmp.
+없으면 단일스레드로 폴백.
 """
 import platform
 import subprocess
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 from setuptools import setup
 
-extra_compile, extra_link = ["-O3", "-std=c++17"], []
 system = platform.system()
+extra_compile, extra_link = [], []
 
-if system == "Darwin":
+if system == "Windows":
+    extra_compile = ["/O2", "/openmp"]
+elif system == "Darwin":
+    extra_compile = ["-O3"]
     try:
         omp = subprocess.check_output(
             ["brew", "--prefix", "libomp"], stderr=subprocess.DEVNULL
@@ -18,10 +22,10 @@ if system == "Darwin":
         extra_compile += ["-Xpreprocessor", "-fopenmp", f"-I{omp}/include"]
         extra_link += [f"-L{omp}/lib", "-lomp"]
     except Exception:
-        pass  # OpenMP 없으면 단일스레드로 빌드
+        pass  # libomp 없으면 단일스레드
 else:  # Linux / others
-    extra_compile += ["-fopenmp"]
-    extra_link += ["-fopenmp"]
+    extra_compile = ["-O3", "-fopenmp"]
+    extra_link = ["-fopenmp"]
 
 ext_modules = [
     Pybind11Extension(

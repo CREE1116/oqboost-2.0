@@ -1,0 +1,71 @@
+name: build-wheels
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build_wheels:
+    name: wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux_* *_i686 pp*"
+          CIBW_ARCHS_MACOS: "auto"
+          CIBW_ARCHS_LINUX: "x86_64"
+          # macOS: OpenMP via libomp
+          CIBW_BEFORE_ALL_MACOS: "brew install libomp || true"
+          # 빌드 후 import 스모크
+          CIBW_TEST_REQUIRES: "numpy scikit-learn"
+          CIBW_TEST_COMMAND: >
+            python -c "from oqboost import OQBoostClassifier, OQBoostRegressor;
+            from sklearn.datasets import make_classification;
+            X,y=make_classification(n_samples=300,n_features=6,random_state=0);
+            import numpy as np;
+            print('AUC ok' if OQBoostClassifier(n_estimators=40).fit(X,y).predict_proba(X).shape==(300,2) else 'FAIL')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pipx run build --sdist
+      - uses: actions/upload-artifact@v4
+        with: { name: sdist, path: ./dist/*.tar.gz }
+
+  # release 발행 시에만 PyPI 업로드. repo Secret `PYPI_API_TOKEN` 필요.
+  publish:
+    name: publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'published'
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist
