@@ -27,7 +27,7 @@ COLORS = {"OQBoost": "#E05A2B", "XGBoost": "#2980B9",
 def oq_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 3, 6),
+                max_depth=t.suggest_int("max_depth", 2, 5),
                 max_bins=t.suggest_int("max_bins", 8, 32),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
