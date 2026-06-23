@@ -112,15 +112,14 @@ static bool lsq_separator(const std::vector<double>& cA, const std::vector<doubl
 }
 
 // ─── 투영 위 히스토그램 임계 (O(n+B)) ───────────────────────────────────────
-static bool refine_threshold(const std::vector<double>& proj, const std::vector<int>& idx,
-                             const std::vector<double>& g, const std::vector<double>& h,
+static bool refine_threshold(const std::vector<double>& proj, const double* gn, const double* hn,
                              double lam, double Gp, double Hp, double& outT, double& outGain) {
     int n=(int)proj.size(); double mn=proj[0],mx=proj[0];
     for(double v:proj){mn=std::min(mn,v);mx=std::max(mx,v);}
     if(mx-mn<1e-12) return false;
-    const int B=64; double w=(mx-mn)/B; std::vector<double> Gb(B,0),Hb(B,0);
+    const int B=64; double w=(mx-mn)/B; double Gb[64]={0},Hb[64]={0};
     for(int i=0;i<n;i++){int b=(int)((proj[i]-mn)/w); if(b>=B)b=B-1; if(b<0)b=0;
-        Gb[b]+=g[idx[i]]; Hb[b]+=h[idx[i]];}
+        Gb[b]+=gn[i]; Hb[b]+=hn[i];}
     double base=gain_term(Gp,Hp,lam),GL=0,HL=0,bg=0,bt=0; bool found=false;
     for(int b=0;b+1<B;b++){ GL+=Gb[b]; HL+=Hb[b];
         if(HL<=1e-12||Hp-HL<=1e-12) continue;
@@ -147,13 +146,13 @@ static std::vector<FCache> build_caches(const double* X, int d, const std::vecto
 
 // ─── 1D 분할 (bin 히스토그램) ───────────────────────────────────────────────
 static Split eval_1d(const std::vector<FCache>& C, const std::vector<std::vector<double>>& centers,
-                     const std::vector<int>& idx, const std::vector<double>& g,
-                     const std::vector<double>& h, double Gp, double Hp, const Params& P) {
-    Split best; double base=gain_term(Gp,Hp,P.reg_lambda);
+                     const std::vector<double>& gn, const std::vector<double>& hn,
+                     double Gp, double Hp, const Params& P) {
+    Split best; double base=gain_term(Gp,Hp,P.reg_lambda); int nloc=(int)gn.size();
     for(const FCache& c:C){
         const std::vector<double>& ctr=centers[c.f]; int k=(int)ctr.size(); if(k<2) continue;
         std::vector<double> Ga(k,0),Ha(k,0); std::vector<int> cnt(k,0);
-        for(size_t i=0;i<idx.size();i++){int b=c.bin[i]; Ga[b]+=g[idx[i]]; Ha[b]+=h[idx[i]]; cnt[b]++;}
+        for(int i=0;i<nloc;i++){int b=c.bin[i]; Ga[b]+=gn[i]; Ha[b]+=hn[i]; cnt[b]++;}
         std::vector<int> occ; for(int a=0;a<k;a++) if(cnt[a]>0) occ.push_back(a);
         if((int)occ.size()<2) continue;
         std::sort(occ.begin(),occ.end(),[&](int a,int b){
@@ -176,12 +175,15 @@ static Split eval_1d(const std::vector<FCache>& C, const std::vector<std::vector
 // ─── 한 쌍 2D oblique (bin 그리드 + 사전계산 center) ────────────────────────
 static Split eval_pair(const FCache& cA_, const FCache& cB_,
                        const std::vector<double>& ctrA, const std::vector<double>& ctrB,
-                       const std::vector<int>& idx, const std::vector<double>& g,
-                       const std::vector<double>& h, double Gp, double Hp, const Params& P) {
+                       const std::vector<double>& gn, const std::vector<double>& hn,
+                       double Gp, double Hp, const Params& P) {
     Split s; int kA=(int)ctrA.size(), kB=(int)ctrB.size(); if(kA<1||kB<1) return s;
-    std::vector<double> Gc(kA*kB,0),Hc(kA*kB,0); std::vector<int> cnt(kA*kB,0);
-    for(size_t i=0;i<idx.size();i++){int c=cA_.bin[i]*kB+cB_.bin[i];
-        Gc[c]+=g[idx[i]]; Hc[c]+=h[idx[i]]; cnt[c]++;}
+    int nloc=(int)gn.size(), K=kA*kB;
+    // thread_local 스크래치 — 쌍마다 heap 할당 제거 (각 OpenMP 스레드 전용)
+    static thread_local std::vector<double> Gc,Hc,proj; static thread_local std::vector<int> cnt;
+    Gc.assign(K,0); Hc.assign(K,0); cnt.assign(K,0);
+    for(int i=0;i<nloc;i++){int c=cA_.bin[i]*kB+cB_.bin[i];
+        Gc[c]+=gn[i]; Hc[c]+=hn[i]; cnt[c]++;}
     std::vector<int> oa,ob; std::vector<double> Gs,Hs;
     for(int a=0;a<kA;a++) for(int b=0;b<kB;b++){int c=a*kB+b; if(cnt[c]>0){
         oa.push_back(a);ob.push_back(b);Gs.push_back(Gc[c]);Hs.push_back(Hc[c]);}}
@@ -191,22 +193,22 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
         return -Gs[a]/(Hs[a]+P.reg_lambda) < -Gs[b]/(Hs[b]+P.reg_lambda);});
     double base=gain_term(Gp,Hp,P.reg_lambda),GL=0,HL=0,bg=0; int bk=-1;
     for(int ki=0;ki+1<S;ki++){GL+=Gs[so[ki]];HL+=Hs[so[ki]];
-        double gn=gain_term(GL,HL,P.reg_lambda)+gain_term(Gp-GL,Hp-HL,P.reg_lambda)-base;
-        if(gn>bg){bg=gn;bk=ki;}}
+        double gv=gain_term(GL,HL,P.reg_lambda)+gain_term(Gp-GL,Hp-HL,P.reg_lambda)-base;
+        if(gv>bg){bg=gv;bk=ki;}}
     if(bk<0) return s;
     std::vector<int> lab(S,1); for(int j=0;j<=bk;j++) lab[so[j]]=0;
     std::vector<double> cA(S),cB(S); for(int t=0;t<S;t++){cA[t]=ctrA[oa[t]];cB[t]=ctrB[ob[t]];}
     double coefA,coefB; if(!lsq_separator(cA,cB,lab,Hs,coefA,coefB)) return s;
-    std::vector<double> proj(idx.size());
-    for(size_t i=0;i<idx.size();i++) proj[i]=coefA*cA_.col[i]+coefB*cB_.col[i];
-    double t,gn2; if(!refine_threshold(proj,idx,g,h,P.reg_lambda,Gp,Hp,t,gn2)) return s;
+    proj.resize(nloc);
+    for(int i=0;i<nloc;i++) proj[i]=coefA*cA_.col[i]+coefB*cB_.col[i];
+    double t,gn2; if(!refine_threshold(proj,gn.data(),hn.data(),P.reg_lambda,Gp,Hp,t,gn2)) return s;
     s.gain=gn2; s.type=2; s.fA=cA_.f; s.fB=cB_.f; s.coefA=coefA; s.coefB=coefB; s.bias=-t;
     return s;
 }
 
 static Split eval_2d(const std::vector<FCache>& C, const std::vector<std::vector<double>>& centers,
-                     const std::vector<int>& idx, const std::vector<double>& g,
-                     const std::vector<double>& h, double Gp, double Hp, const Params& P) {
+                     const std::vector<double>& gn, const std::vector<double>& hn,
+                     double Gp, double Hp, const Params& P) {
     int nf=(int)C.size(); std::vector<std::pair<int,int>> pr; pr.reserve(nf*(nf-1)/2);
     for(int a=0;a<nf;a++) for(int b=a+1;b<nf;b++) pr.emplace_back(a,b);
     int np=(int)pr.size(); std::vector<Split> res(np);
@@ -214,7 +216,7 @@ static Split eval_2d(const std::vector<FCache>& C, const std::vector<std::vector
     for(int p=0;p<np;p++)
         res[p]=eval_pair(C[pr[p].first],C[pr[p].second],
                          centers[C[pr[p].first].f],centers[C[pr[p].second].f],
-                         idx,g,h,Gp,Hp,P);
+                         gn,hn,Gp,Hp,P);
     Split best; for(const Split& s:res) if(s.gain>best.gain) best=s; return best;
 }
 
@@ -234,8 +236,11 @@ static int build(std::vector<Node>& arena, const double* X, int d, const std::ve
         std::sort(feats.begin(),feats.end());
     }
     auto C=build_caches(X,d,binidx,idx,feats);
-    Split s1=eval_1d(C,centers,idx,g,h,Gp,Hp,P);
-    Split s2=eval_2d(C,centers,idx,g,h,Gp,Hp,P);
+    // 노드-로컬 연속 g/h (쌍·피처마다 random gather 제거)
+    std::vector<double> gn(idx.size()), hn(idx.size());
+    for(size_t i=0;i<idx.size();i++){gn[i]=g[idx[i]]; hn[i]=h[idx[i]];}
+    Split s1=eval_1d(C,centers,gn,hn,Gp,Hp,P);
+    Split s2=eval_2d(C,centers,gn,hn,Gp,Hp,P);
     Split bs=(s2.gain>=s1.gain)?s2:s1;
     if(bs.gain<=1e-6||bs.type==0) return ni;
 
