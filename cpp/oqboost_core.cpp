@@ -629,7 +629,7 @@ static int build(std::vector<Node>& arena, const double* X, int d,
                  const std::vector<std::vector<double>>& centers,
                  const std::vector<bool>& has_nan, const std::vector<double>& g,
                  const std::vector<double>& h, std::vector<int> idx, int depth,
-                 const Params& P, std::mt19937& rng) {
+                 const Params& P, std::mt19937& rng, std::vector<double>& imp) {
   double Gp = 0, Hp = 0;
   for (int i : idx) {
     Gp += g[i];
@@ -680,6 +680,9 @@ static int build(std::vector<Node>& arena, const double* X, int d,
     (left ? li : ri).push_back(i);
   }
   if (li.empty() || ri.empty()) return ni;
+  // feature importance: 채택된 분할의 gain을 참여 피처에 누적
+  imp[bs.fA] += bs.gain;
+  if (bs.type == 2) imp[bs.fB] += bs.gain;
   arena[ni].is_leaf = false;
   arena[ni].type = bs.type;
   arena[ni].fA = bs.fA;
@@ -691,9 +694,9 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   arena[ni].nan_direction = bs.nan_direction;
 
   int L = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(li),
-                depth + 1, P, rng);
+                depth + 1, P, rng, imp);
   int R = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(ri),
-                depth + 1, P, rng);
+                depth + 1, P, rng, imp);
   arena[ni].left = L;
   arena[ni].right = R;
   return ni;
@@ -728,6 +731,7 @@ class Booster {
   Params P;
   std::vector<std::vector<Node>> trees;
   double init_score = 0;
+  std::vector<double> importances_;  // 피처별 누적 gain
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir) {
@@ -765,6 +769,7 @@ class Booster {
     std::vector<double> raw(n, init_score), g(n), h(n);
     trees.clear();
     trees.reserve(P.n_estimators);
+    importances_.assign(d, 0.0);
     std::vector<int> all(n);
     std::iota(all.begin(), all.end(), 0);
     std::mt19937 rng(P.seed);
@@ -794,7 +799,8 @@ class Booster {
         rows = all;
       std::vector<Node> arena;
       arena.reserve(256);
-      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng);
+      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng,
+            importances_);
 
 #pragma omp parallel for
       for (int i = 0; i < n; i++)
@@ -842,6 +848,16 @@ class Booster {
     return out;
   }
 
+  py::array_t<double> feature_importances() const {
+    int d = (int)importances_.size();
+    auto out = py::array_t<double>(d);
+    double* op = (double*)out.request().ptr;
+    double s = 0;
+    for (double v : importances_) s += v;
+    for (int i = 0; i < d; i++) op[i] = s > 0 ? importances_[i] / s : 0.0;
+    return out;
+  }
+
   // ── 직렬화 (predict에 필요한 상태만: init_score, lr, objective, trees) ──
   // Node는 POD라 memcpy 가능. 동일 플랫폼/버전 간 pickle 용도.
   py::bytes serialize() const {
@@ -852,6 +868,9 @@ class Booster {
     wr(&init_score, sizeof(double));
     wr(&P.learning_rate, sizeof(double));
     wr(&P.objective, sizeof(int));
+    int di = (int)importances_.size();
+    wr(&di, sizeof(int));
+    if (di) wr(importances_.data(), (size_t)di * sizeof(double));
     int nt = (int)trees.size();
     wr(&nt, sizeof(int));
     for (auto& tr : trees) {
@@ -873,6 +892,10 @@ class Booster {
     rd(&init_score, sizeof(double));
     rd(&P.learning_rate, sizeof(double));
     rd(&P.objective, sizeof(int));
+    int di;
+    rd(&di, sizeof(int));
+    importances_.resize(di);
+    if (di) rd(importances_.data(), (size_t)di * sizeof(double));
     int nt;
     rd(&nt, sizeof(int));
     trees.assign(nt, {});
@@ -898,6 +921,7 @@ PYBIND11_MODULE(oqboost_core, m) {
       .def("fit", &Booster::fit)
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)
+      .def("feature_importances", &Booster::feature_importances)
       .def("serialize", &Booster::serialize)
       .def("deserialize", &Booster::deserialize);
 }

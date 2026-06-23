@@ -12,7 +12,7 @@
 | # | 기능 | 난이도 | 메모 |
 |---|------|--------|------|
 | ☑ | **Model serialization** | 낮음 | ✅ 완료. C++ `serialize/deserialize`(Node POD memcpy) + 래퍼 `__getstate__/__setstate__` → pickle·joblib 호환. |
-| ☐ | **Feature importance** | 낮음 | 노드별 gain·split count 누적 → `feature_importances_`. 거의 공짜. |
+| ☑ | **Feature importance** | 낮음 | ✅ 완료. 채택 분할 gain 피처별 누적 → `feature_importances_`(정규화), pickle 보존. |
 | ☐ | **Regression 안정화** | 낮음 | 현 squared-error에 Huber/quantile 손실, 출력 클리핑, init=median 옵션. |
 | ☐ | **Thread scaling** | 중 | 현 노드별 쌍병렬은 small-data서 fork-join 한계. 트리내부/배치 predict 병렬 개선, OMP 스케줄 튜닝. |
 | ☐ | **Monotonic constraints** | 중 | 피처별 단조 제약 → oblique서 까다로움(선형결합 부호 제약). 1D 분할엔 쉬움, 2D는 coef 부호 제약. |

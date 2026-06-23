@@ -70,6 +70,12 @@ class _BaseOQBoost(BaseEstimator):
             self._booster = _core.Booster()
             self._booster.deserialize(bb)
 
+    @property
+    def feature_importances_(self):
+        """피처별 정규화 누적 gain (sklearn 관례)."""
+        check_is_fitted(self, "_booster")
+        return self._booster.feature_importances()
+
     def _make_booster(self, objective: int):
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
