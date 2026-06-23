@@ -2,13 +2,12 @@ name: build-wheels
 
 on:
   push:
-    branches: [main]
-    tags: ["v*"]
+    tags: ["v*"]          # 버전 태그에서만 풀 매트릭스 빌드
   pull_request:
     branches: [main]
   release:
     types: [published]
-  workflow_dispatch:
+  workflow_dispatch:       # 수동 실행
 
 jobs:
   build_wheels:
