@@ -6,11 +6,25 @@ OQBoostRegressor  : 회귀 (squared error)
 
 둘 다 C++ `oqboost_core.Booster`를 백엔드로 쓴다. 2D-oblique Newton GBDT.
 """
+import inspect
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
 from . import oqboost_core as _core
+
+# NaN 허용 (C++ 백엔드가 결측치 native 처리). sklearn 버전별 인자명 호환.
+_FINITE_KW = ("ensure_all_finite"
+              if "ensure_all_finite" in inspect.signature(check_array).parameters
+              else "force_all_finite")
+
+
+def _check_X(X):
+    return check_array(X, dtype=float, **{_FINITE_KW: "allow-nan"})
+
+
+def _check_Xy(X, y, **kw):
+    return check_X_y(X, y, dtype=float, **{_FINITE_KW: "allow-nan"}, **kw)
 
 
 class _BaseOQBoost(BaseEstimator):
@@ -55,7 +69,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
     """2D-oblique gradient-boosted oblique trees — 이진 분류기 (C++ 백엔드)."""
 
     def fit(self, X, y):
-        X, y = check_X_y(X, y)
+        X, y = _check_Xy(X, y)
         self.classes_ = np.unique(y)
         if len(self.classes_) != 2:
             raise ValueError("OQBoostClassifier는 이진 분류만 지원합니다.")
@@ -67,7 +81,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
 
     def predict_proba(self, X):
         check_is_fitted(self, "_booster")
-        X = check_array(X)
+        X = _check_X(X)
         return self._booster.predict_proba(np.ascontiguousarray(X, dtype=float))
 
     def predict(self, X):
@@ -79,7 +93,7 @@ class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
     """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
 
     def fit(self, X, y):
-        X, y = check_X_y(X, y, y_numeric=True)
+        X, y = _check_Xy(X, y, y_numeric=True)
         self.n_features_in_ = X.shape[1]
         self._booster = self._make_booster(objective=1)
         self._booster.fit(np.ascontiguousarray(X, dtype=float), y.astype(float))
@@ -87,5 +101,5 @@ class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
 
     def predict(self, X):
         check_is_fitted(self, "_booster")
-        X = check_array(X)
+        X = _check_X(X)
         return self._booster.predict_raw(np.ascontiguousarray(X, dtype=float))

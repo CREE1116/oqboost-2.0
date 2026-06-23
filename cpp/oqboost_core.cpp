@@ -69,7 +69,6 @@ static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
     B.has_nan[f] = fnan;
 
     if (cs.empty()) {
-      // 모든 값이 결측치인 경우 예외 처리
       B.edges[f] = {};
       B.centers[f] = {0.0};
       for (int i = 0; i < n; i++) B.idx[(size_t)i * d + f] = 0;
@@ -78,13 +77,11 @@ static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
 
     std::sort(cs.begin(), cs.end());
     std::vector<double> e;
-    // max_bins - 1개만큼 경계 생성 (NaN 공간 확보 고려)
     int actual_max_bins = fnan ? std::max(2, max_bins - 1) : max_bins;
     for (int b = 1; b < actual_max_bins; b++)
       e.push_back(percentile_sorted(cs, 100.0 * b / actual_max_bins));
     e = unique_sorted(e);
 
-    // 정상 빈 개수 + (NaN이 있다면 마지막 빈 추가)
     int norm_nb = (int)e.size() + 1;
     int total_nb = fnan ? norm_nb + 1 : norm_nb;
     u16 nan_bin_idx = (u16)(total_nb - 1);
@@ -109,7 +106,7 @@ static Bins precompute_bins(const double* X, int n, int d, int max_bins) {
     ctr.resize(total_nb);
     for (int b = 0; b < total_nb; b++) {
       if (b == nan_bin_idx && fnan) {
-        ctr[b] = 0.0;  // NaN 빈의 중심값은 임의로 0 처리 (투영 시 분리 우선)
+        ctr[b] = 0.0;
         continue;
       }
       if (cnt[b] > 0)
@@ -127,7 +124,7 @@ struct Split {
   double gain = 0;
   int type = 0, fA = -1, fB = -1;
   double thr = 0, coefA = 0, coefB = 0, bias = 0;
-  int nan_direction = 0;  // 0: Left, 1: Right (결측치 라우팅용 방어 필드)
+  int nan_direction = 0;
 };
 struct Node {
   bool is_leaf = true;
@@ -146,7 +143,19 @@ struct Params {
   int objective = 0;
 };
 
-// ─── SIS 스크리닝 (NaN 방어 적용) ────────────────────────────────────────────
+// ─── 2D 계산용 재사용 Workspace 구조체 (thread_local 대체) ───────────────────
+struct Workspace {
+  std::vector<double> Gc, Hc, proj;
+  std::vector<int> cnt;
+  std::vector<int> oa, ob;
+  std::vector<double> Gs, Hs;
+  std::vector<int> so;
+  std::vector<int> lab;
+  std::vector<double> cA, cB;
+};
+
+// ─── SIS 스크리닝 (캐시 프렌들리 Row-major 순회로 대폭 최적화)
+// ────────────────
 static std::vector<int> screen(const double* X, int d,
                                const std::vector<int>& idx,
                                const std::vector<double>& g, int m) {
@@ -168,33 +177,52 @@ static std::vector<int> screen(const double* X, int d,
   std::vector<double> score(d, 0);
 
   if (gstd > 1e-12) {
-    for (int f = 0; f < d; f++) {
-      double xm = 0;
-      int valid_count = 0;
-      for (int i = 0; i < n; i++) {
-        double v = X[(size_t)idx[i] * d + f];
+    std::vector<double> xm(d, 0.0);
+    std::vector<int> valid_count(d, 0);
+
+    // Pass 1: 샘플(행)을 외곽 루프에 두어 메모리를 연속적으로 읽음 (캐시
+    // 최적화)
+    for (int i = 0; i < n; i++) {
+      size_t row_idx = (size_t)idx[i] * d;
+      for (int f = 0; f < d; f++) {
+        double v = X[row_idx + f];
         if (!std::isnan(v)) {
-          xm += v;
-          valid_count++;
+          xm[f] += v;
+          valid_count[f]++;
         }
       }
-      if (valid_count < 2) {
+    }
+
+    for (int f = 0; f < d; f++) {
+      if (valid_count[f] >= 2) xm[f] /= valid_count[f];
+    }
+
+    std::vector<double> xv(d, 0.0);
+    std::vector<double> cov(d, 0.0);
+
+    // Pass 2: 분산 및 공분산 계산도 동일하게 캐시 친화적 구조로 변경
+    for (int i = 0; i < n; i++) {
+      size_t row_idx = (size_t)idx[i] * d;
+      double g_diff = g[idx[i]] - gm;
+      for (int f = 0; f < d; f++) {
+        if (valid_count[f] < 2) continue;
+        double v = X[row_idx + f];
+        if (!std::isnan(v)) {
+          double xt = v - xm[f];
+          xv[f] += xt * xt;
+          cov[f] += xt * g_diff;
+        }
+      }
+    }
+
+    for (int f = 0; f < d; f++) {
+      if (valid_count[f] < 2) {
         score[f] = 0;
         continue;
       }
-      xm /= valid_count;
-
-      double xv = 0, cov = 0;
-      for (int i = 0; i < n; i++) {
-        double v = X[(size_t)idx[i] * d + f];
-        if (!std::isnan(v)) {
-          double xt = v - xm;
-          xv += xt * xt;
-          cov += xt * (g[idx[i]] - gm);
-        }
-      }
-      double xs = std::sqrt(xv / valid_count);
-      score[f] = (xs > 1e-12) ? std::fabs(cov / valid_count / (xs * gstd)) : 0;
+      double xs = std::sqrt(xv[f] / valid_count[f]);
+      score[f] =
+          (xs > 1e-12) ? std::fabs(cov[f] / valid_count[f] / (xs * gstd)) : 0;
     }
   }
   std::vector<int> fs(d);
@@ -250,23 +278,35 @@ static bool lsq_separator(const std::vector<double>& cA,
   return true;
 }
 
-// ─── 투영 위 히스토그램 임계 (O(n+B) - NaN 방어 강화) ───────────────────────
+// ─── 투영 위 히스토그램 임계 (Fast Path 분리 및 분기 제거) ───────────────────
 static bool refine_threshold(const std::vector<double>& proj, const double* gn,
                              const double* hn, double lam, double Gp, double Hp,
-                             double& outT, double& outGain) {
+                             double& outT, double& outGain, bool has_nan) {
   int n = (int)proj.size();
   double mn = 0.0, mx = 0.0;
   bool first = true;
 
-  for (double v : proj) {
-    if (!std::isnan(v)) {
-      if (first) {
-        mn = v;
-        mx = v;
-        first = false;
-      } else {
-        mn = std::min(mn, v);
-        mx = std::max(mx, v);
+  if (!has_nan) {
+    if (n == 0) return false;
+    mn = proj[0];
+    mx = proj[0];
+    for (int i = 1; i < n; i++) {
+      double v = proj[i];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    first = false;
+  } else {
+    for (double v : proj) {
+      if (!std::isnan(v)) {
+        if (first) {
+          mn = v;
+          mx = v;
+          first = false;
+        } else {
+          mn = std::min(mn, v);
+          mx = std::max(mx, v);
+        }
       }
     }
   }
@@ -277,40 +317,58 @@ static bool refine_threshold(const std::vector<double>& proj, const double* gn,
   double Gb[64] = {0}, Hb[64] = {0};
   double G_nan = 0, H_nan = 0;
 
-  for (int i = 0; i < n; i++) {
-    if (std::isnan(proj[i])) {
-      G_nan += gn[i];
-      H_nan += hn[i];
-    } else {
+  if (!has_nan) {
+    // NaN이 없는 경우 분기문 없는 순수 SIMD 고속 루프 가능
+    for (int i = 0; i < n; i++) {
       int b = (int)((proj[i] - mn) / w);
       if (b >= B) b = B - 1;
       if (b < 0) b = 0;
       Gb[b] += gn[i];
       Hb[b] += hn[i];
     }
+  } else {
+    for (int i = 0; i < n; i++) {
+      if (std::isnan(proj[i])) {
+        G_nan += gn[i];
+        H_nan += hn[i];
+      } else {
+        int b = (int)((proj[i] - mn) / w);
+        if (b >= B) b = B - 1;
+        if (b < 0) b = 0;
+        Gb[b] += gn[i];
+        Hb[b] += hn[i];
+      }
+    }
   }
 
   double base = gain_term(Gp, Hp, lam), GL = 0, HL = 0, bg = 0, bt = 0;
   bool found = false;
 
-  // 기본적으로 NaN이 없는 경우 탐색
   for (int b = 0; b + 1 < B; b++) {
     GL += Gb[b];
     HL += Hb[b];
 
-    // NaN 샘플을 Left로 보낼 때와 Right로 보낼 때 모두 검사
-    for (int nan_dir = 0; nan_dir <= 1; nan_dir++) {
-      double cur_GL = GL + (nan_dir == 0 ? G_nan : 0);
-      double cur_HL = HL + (nan_dir == 0 ? H_nan : 0);
-
-      if (cur_HL <= 1e-12 || Hp - cur_HL <= 1e-12) continue;
-
-      double gain_val = gain_term(cur_GL, cur_HL, lam) +
-                        gain_term(Gp - cur_GL, Hp - cur_HL, lam) - base;
+    if (!has_nan) {
+      if (HL <= 1e-12 || Hp - HL <= 1e-12) continue;
+      double gain_val =
+          gain_term(GL, HL, lam) + gain_term(Gp - GL, Hp - HL, lam) - base;
       if (gain_val > bg) {
         bg = gain_val;
         bt = mn + (b + 1) * w;
         found = true;
+      }
+    } else {
+      for (int nan_dir = 0; nan_dir <= 1; nan_dir++) {
+        double cur_GL = GL + (nan_dir == 0 ? G_nan : 0);
+        double cur_HL = HL + (nan_dir == 0 ? H_nan : 0);
+        if (cur_HL <= 1e-12 || Hp - cur_HL <= 1e-12) continue;
+        double gain_val = gain_term(cur_GL, cur_HL, lam) +
+                          gain_term(Gp - cur_GL, Hp - cur_HL, lam) - base;
+        if (gain_val > bg) {
+          bg = gain_val;
+          bt = mn + (b + 1) * w;
+          found = true;
+        }
       }
     }
   }
@@ -331,22 +389,27 @@ static std::vector<FCache> build_caches(const double* X, int d,
                                         const std::vector<int>& idx,
                                         const std::vector<int>& feats) {
   std::vector<FCache> C(feats.size());
+  size_t n_samples = idx.size();
   for (size_t fi = 0; fi < feats.size(); fi++) {
     FCache& c = C[fi];
     c.f = feats[fi];
-    int f = c.f;
-    c.col.resize(idx.size());
-    c.bin.resize(idx.size());
-    for (size_t i = 0; i < idx.size(); i++) {
-      c.col[i] = X[(size_t)idx[i] * d + f];
-      c.bin[i] = binidx[(size_t)idx[i] * d + f];
+    c.col.resize(n_samples);
+    c.bin.resize(n_samples);
+  }
+
+  // 이 함수 역시 샘플(행)을 외곽 루프에 두어 캐시 적중률 극대화
+  for (size_t i = 0; i < n_samples; i++) {
+    size_t row_offset = (size_t)idx[i] * d;
+    for (size_t fi = 0; fi < feats.size(); fi++) {
+      int f = C[fi].f;
+      C[fi].col[i] = X[row_offset + f];
+      C[fi].bin[i] = binidx[row_offset + f];
     }
   }
   return C;
 }
 
-// ─── 1D 분할 (연속형 공간 순서 기반 bin 히스토그램 스캔 - NaN 방어 추가)
-// ──────
+// ─── 1D 분할 ─────────────────────────────────────────────────────────────────
 static Split eval_1d(const std::vector<FCache>& C,
                      const std::vector<std::vector<double>>& centers,
                      const std::vector<double>& gn,
@@ -362,24 +425,15 @@ static Split eval_1d(const std::vector<FCache>& C,
     if (k < 2) continue;
 
     std::vector<double> Ga(k, 0), Ha(k, 0);
-    std::vector<int> cnt(k, 0);
     for (int i = 0; i < nloc; i++) {
       int b = c.bin[i];
       Ga[b] += gn[i];
       Ha[b] += hn[i];
-      cnt[b]++;
     }
 
-    // NaN 전용 마지막 빈이 있는지 확인
-    bool has_nan_bin = (k > 1 && std::isnan(ctr.back()) == false &&
-                        (size_t)c.f < centers.size());
-    // 실제 의미있는 오름차순 빈 정렬
     std::vector<int> occ;
-    int norm_k =
-        (k > 1 && cnt.back() > 0) ? k - 1 : k;  // 단순 방어적 결측치 제외 처리
-
     for (int a = 0; a < k; a++) {
-      if (cnt[a] > 0) occ.push_back(a);
+      if (Ha[a] > 0.0) occ.push_back(a);   // h>0 ⟺ 점유
     }
     if ((int)occ.size() < 2) continue;
 
@@ -395,70 +449,63 @@ static Split eval_1d(const std::vector<FCache>& C,
         best.type = 1;
         best.fA = c.f;
         best.thr = (ctr[occ[ki]] + ctr[occ[ki + 1]]) / 2.0;
-        best.nan_direction = 1;  // Default Right
+        best.nan_direction = 1;
       }
     }
   }
   return best;
 }
 
-// ─── 한 쌍 2D oblique (모든 임시 메모리 재할당 제거로 병렬 성능 최적화) ─────
+// ─── 한 쌍 2D oblique (Workspace 주입 및 SIMD 고속 투영 적용) ────────────────
 static Split eval_pair(const FCache& cA_, const FCache& cB_,
                        const std::vector<double>& ctrA,
                        const std::vector<double>& ctrB,
                        const std::vector<double>& gn,
                        const std::vector<double>& hn, double Gp, double Hp,
-                       const Params& P) {
+                       const Params& P, Workspace& ws, bool has_nan) {
   Split s;
   int kA = (int)ctrA.size(), kB = (int)ctrB.size();
   if (kA < 1 || kB < 1) return s;
   int nloc = (int)gn.size(), K = kA * kB;
 
-  static thread_local std::vector<double> Gc, Hc, proj;
-  static thread_local std::vector<int> cnt;
-  static thread_local std::vector<int> oa, ob;
-  static thread_local std::vector<double> Gs, Hs;
-  static thread_local std::vector<int> so;
-  static thread_local std::vector<int> lab;
-  static thread_local std::vector<double> cA, cB;
-
-  Gc.assign(K, 0);
-  Hc.assign(K, 0);
-  cnt.assign(K, 0);
+  // h>0 항상참 → Hc>0 ⟺ 점유. cnt 배열 제거(샘플당 scatter write 3→2).
+  ws.Gc.assign(K, 0);
+  ws.Hc.assign(K, 0);
   for (int i = 0; i < nloc; i++) {
     int c = cA_.bin[i] * kB + cB_.bin[i];
-    Gc[c] += gn[i];
-    Hc[c] += hn[i];
-    cnt[c]++;
+    ws.Gc[c] += gn[i];
+    ws.Hc[c] += hn[i];
   }
 
-  oa.clear();
-  ob.clear();
-  Gs.clear();
-  Hs.clear();
-  for (int a = 0; a < kA; a++)
+  ws.oa.clear();
+  ws.ob.clear();
+  ws.Gs.clear();
+  ws.Hs.clear();
+  for (int a = 0; a < kA; a++) {
     for (int b = 0; b < kB; b++) {
       int c = a * kB + b;
-      if (cnt[c] > 0) {
-        oa.push_back(a);
-        ob.push_back(b);
-        Gs.push_back(Gc[c]);
-        Hs.push_back(Hc[c]);
+      if (ws.Hc[c] > 0.0) {
+        ws.oa.push_back(a);
+        ws.ob.push_back(b);
+        ws.Gs.push_back(ws.Gc[c]);
+        ws.Hs.push_back(ws.Hc[c]);
       }
     }
-  int S = (int)oa.size();
+  }
+  int S = (int)ws.oa.size();
   if (S < 2) return s;
 
-  so.resize(S);
-  std::iota(so.begin(), so.end(), 0);
-  std::sort(so.begin(), so.end(), [&](int a, int b) {
-    return -Gs[a] / (Hs[a] + P.reg_lambda) < -Gs[b] / (Hs[b] + P.reg_lambda);
+  ws.so.resize(S);
+  std::iota(ws.so.begin(), ws.so.end(), 0);
+  std::sort(ws.so.begin(), ws.so.end(), [&](int a, int b) {
+    return -ws.Gs[a] / (ws.Hs[a] + P.reg_lambda) <
+           -ws.Gs[b] / (ws.Hs[b] + P.reg_lambda);
   });
   double base = gain_term(Gp, Hp, P.reg_lambda), GL = 0, HL = 0, bg = 0;
   int bk = -1;
   for (int ki = 0; ki + 1 < S; ki++) {
-    GL += Gs[so[ki]];
-    HL += Hs[so[ki]];
+    GL += ws.Gs[ws.so[ki]];
+    HL += ws.Hs[ws.so[ki]];
     double gv = gain_term(GL, HL, P.reg_lambda) +
                 gain_term(Gp - GL, Hp - HL, P.reg_lambda) - base;
     if (gv > bg) {
@@ -468,28 +515,36 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
   }
   if (bk < 0) return s;
 
-  lab.assign(S, 1);
-  for (int j = 0; j <= bk; j++) lab[so[j]] = 0;
-  cA.resize(S);
-  cB.resize(S);
+  ws.lab.assign(S, 1);
+  for (int j = 0; j <= bk; j++) ws.lab[ws.so[j]] = 0;
+  ws.cA.resize(S);
+  ws.cB.resize(S);
   for (int t = 0; t < S; t++) {
-    cA[t] = ctrA[oa[t]];
-    cB[t] = ctrB[ob[t]];
+    ws.cA[t] = ctrA[ws.oa[t]];
+    ws.cB[t] = ctrB[ws.ob[t]];
   }
   double coefA, coefB;
-  if (!lsq_separator(cA, cB, lab, Hs, coefA, coefB)) return s;
+  if (!lsq_separator(ws.cA, ws.cB, ws.lab, ws.Hs, coefA, coefB)) return s;
 
-  proj.resize(nloc);
-  for (int i = 0; i < nloc; i++) {
-    if (std::isnan(cA_.col[i]) || std::isnan(cB_.col[i])) {
-      proj[i] = std::numeric_limits<double>::quiet_NaN();
-    } else {
-      proj[i] = coefA * cA_.col[i] + coefB * cB_.col[i];
+  ws.proj.resize(nloc);
+  if (!has_nan) {
+// NaN이 없는 경우 컴파일러 자동 벡터화 강제 가이드
+#pragma omp simd
+    for (int i = 0; i < nloc; i++) {
+      ws.proj[i] = coefA * cA_.col[i] + coefB * cB_.col[i];
+    }
+  } else {
+    for (int i = 0; i < nloc; i++) {
+      if (std::isnan(cA_.col[i]) || std::isnan(cB_.col[i])) {
+        ws.proj[i] = std::numeric_limits<double>::quiet_NaN();
+      } else {
+        ws.proj[i] = coefA * cA_.col[i] + coefB * cB_.col[i];
+      }
     }
   }
   double t, gn2;
-  if (!refine_threshold(proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp, t,
-                        gn2))
+  if (!refine_threshold(ws.proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp, t,
+                        gn2, has_nan))
     return s;
   s.gain = gn2;
   s.type = 2;
@@ -504,6 +559,7 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
 
 static Split eval_2d(const std::vector<FCache>& C,
                      const std::vector<std::vector<double>>& centers,
+                     const std::vector<bool>& has_nan,
                      const std::vector<double>& gn,
                      const std::vector<double>& hn, double Gp, double Hp,
                      const Params& P) {
@@ -514,11 +570,26 @@ static Split eval_2d(const std::vector<FCache>& C,
     for (int b = a + 1; b < nf; b++) pr.emplace_back(a, b);
   int np = (int)pr.size();
   std::vector<Split> res(np);
+
+  int max_threads = 1;
+#ifdef _OPENMP
+  max_threads = omp_get_max_threads();
+#endif
+  // 스레드별 개별 Workspace 미리 할당하여 thread_local 병목 타파
+  std::vector<Workspace> wss(max_threads);
+
 #pragma omp parallel for schedule(dynamic, 4)
-  for (int p = 0; p < np; p++)
-    res[p] =
-        eval_pair(C[pr[p].first], C[pr[p].second], centers[C[pr[p].first].f],
-                  centers[C[pr[p].second].f], gn, hn, Gp, Hp, P);
+  for (int p = 0; p < np; p++) {
+    int tid = 0;
+#ifdef _OPENMP
+    tid = omp_get_thread_num();
+#endif
+    int fA = C[pr[p].first].f;
+    int fB = C[pr[p].second].f;
+    bool pair_has_nan = has_nan[fA] || has_nan[fB];
+    res[p] = eval_pair(C[pr[p].first], C[pr[p].second], centers[fA],
+                       centers[fB], gn, hn, Gp, Hp, P, wss[tid], pair_has_nan);
+  }
   Split best;
   for (const Split& s : res)
     if (s.gain > best.gain) best = s;
@@ -529,9 +600,9 @@ static Split eval_2d(const std::vector<FCache>& C,
 static int build(std::vector<Node>& arena, const double* X, int d,
                  const std::vector<u16>& binidx,
                  const std::vector<std::vector<double>>& centers,
-                 const std::vector<double>& g, const std::vector<double>& h,
-                 std::vector<int> idx, int depth, const Params& P,
-                 std::mt19937& rng) {
+                 const std::vector<bool>& has_nan, const std::vector<double>& g,
+                 const std::vector<double>& h, std::vector<int> idx, int depth,
+                 const Params& P, std::mt19937& rng) {
   double Gp = 0, Hp = 0;
   for (int i : idx) {
     Gp += g[i];
@@ -556,7 +627,7 @@ static int build(std::vector<Node>& arena, const double* X, int d,
     hn[i] = h[idx[i]];
   }
   Split s1 = eval_1d(C, centers, gn, hn, Gp, Hp, P);
-  Split s2 = eval_2d(C, centers, gn, hn, Gp, Hp, P);
+  Split s2 = eval_2d(C, centers, has_nan, gn, hn, Gp, Hp, P);
   Split bs = (s2.gain >= s1.gain) ? s2 : s1;
   if (bs.gain <= 1e-6 || bs.type == 0) return ni;
 
@@ -592,10 +663,10 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   arena[ni].bias = bs.bias;
   arena[ni].nan_direction = bs.nan_direction;
 
-  int L = build(arena, X, d, binidx, centers, g, h, std::move(li), depth + 1, P,
-                rng);
-  int R = build(arena, X, d, binidx, centers, g, h, std::move(ri), depth + 1, P,
-                rng);
+  int L = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(li),
+                depth + 1, P, rng);
+  int R = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(ri),
+                depth + 1, P, rng);
   arena[ni].left = L;
   arena[ni].right = R;
   return ni;
@@ -695,7 +766,7 @@ class Booster {
         rows = all;
       std::vector<Node> arena;
       arena.reserve(256);
-      build(arena, X, d, B.idx, B.centers, g, h, rows, 0, P, rng);
+      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng);
 
 #pragma omp parallel for
       for (int i = 0; i < n; i++)

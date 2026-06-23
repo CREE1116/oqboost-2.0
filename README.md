@@ -32,6 +32,7 @@ boundaries (Spiral, XOR) where axis-aligned XGBoost collapses into blocky stairc
 | Direction finding | BHC-seeded H-weighted least squares (2×2, O(1)) — deterministic |
 | Higher-order interactions | Composed via tree depth + boosting (2D atoms) |
 | Categorical features | Integer codes through the oblique path (no special encoding) |
+| Missing values | Native — NaN routed to a dedicated learned bin (no imputation needed) |
 | Speed | Global histogram binning + OpenMP-parallel pair search |
 | Tasks | `OQBoostClassifier` (binary) · `OQBoostRegressor` |
 | API | scikit-learn compatible |

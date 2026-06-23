@@ -7,7 +7,8 @@ of axis-aligned thresholds, capturing diagonal and interaction boundaries that
 XGBoost/LightGBM approximate with coarse staircases. Version 2.0 is a ground-up
 redesign: a histogram-binned 2D-oblique core with a deterministic direction fit.
 
-scikit-learn compatible · compiled C++ (pybind11) + OpenMP.
+scikit-learn compatible · compiled C++ (pybind11) + OpenMP · **native missing-value
+handling** (NaN routed to a learned bin, no imputation needed).
 
 ---
 
