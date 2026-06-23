@@ -55,7 +55,7 @@ def main():
     fig.suptitle("Decision Boundaries — AnchorTree vs XGBoost / LightGBM / CatBoost",
                  fontsize=13, fontweight="bold", y=1.002)
     plt.tight_layout()
-    out = Path(__file__).parent / "output"; out.mkdir(exist_ok=True)
+    out = Path(__file__).parent.parent / "docs"; out.mkdir(exist_ok=True)
     path = out / "decision_boundary.png"
     fig.savefig(path, dpi=130, bbox_inches="tight"); plt.close(fig)
     print(f"  → {path}")

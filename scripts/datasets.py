@@ -92,23 +92,53 @@ def _encode(df):
     return X
 
 
+def _load_openml_one(did, name, max_rows):
+    data = fetch_openml(data_id=did, as_frame=True, parser="auto")
+    df = data.frame
+    tcol = data.target_names[0]
+    yraw = df[tcol].astype(str)
+    classes = sorted(yraw.unique())
+    if len(classes) != 2:
+        raise ValueError(f"not binary ({len(classes)} classes)")
+    y = (yraw == classes[-1]).astype(int).values
+    X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
+    X, y = _subsample(X, y, max_rows)
+    return name, X, np.asarray(y)
+
+
 def load_real(max_rows=3000):
-    """반환: list of (name, X, y)."""
+    """소형 스모크 세트 (5개)."""
     out = []
     d = load_breast_cancer()
     out.append(("breast_cancer", d.data.astype(float), d.target.astype(int)))
-    specs = [(31, "german_credit"), (1590, "adult_income"),
-             (1461, "bank_marketing"), (37, "diabetes_pima")]
-    for did, name in specs:
+    for did, name in [(31, "german_credit"), (1590, "adult_income"),
+                      (1461, "bank_marketing"), (37, "diabetes_pima")]:
         try:
-            data = fetch_openml(data_id=did, as_frame=True, parser="auto")
-            df = data.frame
-            tcol = data.target_names[0]
-            yraw = df[tcol].astype(str)
-            y = (yraw == sorted(yraw.unique())[-1]).astype(int).values
-            X = np.nan_to_num(_encode(df.drop(columns=[tcol])))
-            X, y = _subsample(X, y, max_rows)
-            out.append((name, X, np.asarray(y)))
+            out.append(_load_openml_one(did, name, max_rows))
         except Exception as e:
             print(f"  [skip] {name}: {e}")
+    return out
+
+
+# 다양한 이진분류 OpenML 데이터셋 (크기·차원·도메인 다양)
+OPENML_SUITE = [
+    (31, "german_credit"), (37, "diabetes"), (44, "spambase"),
+    (1461, "bank_marketing"), (1590, "adult"), (1489, "phoneme"),
+    (1462, "banknote"), (1464, "blood_transfusion"), (1494, "qsar_biodeg"),
+    (1067, "kc1"), (3, "kr_vs_kp"), (4534, "phishing"),
+    (1471, "eeg_eye_state"), (1487, "ozone"), (1480, "ilpd"),
+]
+
+
+def load_openml_suite(max_rows=8000, include_breast=True):
+    """다양한 OpenML 이진 데이터셋. 반환: list of (name, X, y)."""
+    out = []
+    if include_breast:
+        d = load_breast_cancer()
+        out.append(("breast_cancer", d.data.astype(float), d.target.astype(int)))
+    for did, name in OPENML_SUITE:
+        try:
+            out.append(_load_openml_one(did, name, max_rows))
+        except Exception as e:
+            print(f"  [skip] {name}({did}): {e}")
     return out

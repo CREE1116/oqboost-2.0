@@ -11,6 +11,13 @@ H-weighted least-squares fit — no random projections, no numerical search.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
+<p align="center">
+  <img src="docs/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
+</p>
+
+Decision boundaries on synthetic 2D problems. OQBoost draws **smooth diagonal**
+boundaries (Spiral, XOR) where axis-aligned XGBoost collapses into blocky staircases.
+
 ---
 
 ## Key properties
