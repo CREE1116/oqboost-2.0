@@ -5,7 +5,9 @@
 OQBoost splits on **oblique hyperplanes over feature pairs** (`a·u + b·v < t`) instead
 of axis-aligned thresholds, so diagonal and interaction boundaries are represented
 directly rather than as axis-aligned approximations. Version 2.0 is a histogram-binned
-2D-oblique core with a deterministic direction fit.
+2D-oblique core that finds split directions by H-weighted least-squares regression of
+the gradient — deterministic, one 2×2 solve per feature pair (no random projections or
+numerical search).
 
 scikit-learn compatible · compiled C++ (pybind11) + OpenMP · **native missing-value
 handling** (NaN routed to a learned bin, no imputation needed).
@@ -103,6 +105,7 @@ oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 | `alpha`                | 0.9         | huber δ-quantile / quantile target                                                |
 | `clip`                 | `False`     | clamp regression output to training target range                                  |
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict)                |
+| `warm_start`           | `False`     | add trees on top of the existing model when `n_estimators` grows (incremental)     |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (no level merging)  |
 
 ## Why oblique
@@ -119,7 +122,7 @@ Full benchmarks, decision-boundary figures, and design notes:
 > **Note:** OQBoost 2.0 is a ground-up rewrite. The original 1.x line — oblique splits
 > via a Deterministic Gradient-Covariance Scan (DGCS) — lives at
 > [cree1116/OQBoost](https://github.com/cree1116/OQBoost). 2.0 replaces the direction
-> finder with a histogram-binned BHC-seeded least-squares fit.
+> finder with a histogram-binned H-weighted gradient-regression fit (one 2×2 solve per pair).
 
 ---
 
