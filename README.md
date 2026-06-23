@@ -140,6 +140,28 @@ prediction minus the base score — so it lines up directly with `shap` values
 from other models, while `interaction_importances_` reads off the pairwise
 structure the oblique splits actually learned (at zero extra cost).
 
+`oqboost.plot` renders these with matplotlib (no `shap` dependency):
+
+```python
+import oqboost.plot as oqp
+oqp.plot_importance(model)            # Σ gain·|coef| per feature
+oqp.plot_interactions(model)          # d×d pairwise-interaction heatmap
+oqp.plot_explanation(model, x)        # one-sample additive contributions
+oqp.plot_explanation_summary(model, X)  # SHAP-style beeswarm over samples
+```
+
+<p align="center">
+  <img src="docs/explainability.png" alt="OQBoost native explanation plots" width="820">
+</p>
+
+On data with a true `age·income` interaction plus independent `capital`/`debt`
+linear terms, the heatmap surfaces `age×income`. It also pairs `capital×debt`:
+oblique trees fold two independent linear effects into a single direction
+`a·capital + b·debt`, so `interaction_importances_` reflects **features co-used
+in a split** — genuine interactions and efficient linear combinations alike.
+
+Reproduce with `python scripts/explain_demo.py`.
+
 ---
 
 ## Key hyperparameters
