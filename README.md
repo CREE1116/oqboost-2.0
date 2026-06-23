@@ -12,8 +12,10 @@ the gradient (no random projections or numerical search), with a C++ backend.
 > found oblique directions with a Deterministic Gradient-Covariance Scan (DGCS).
 > 2.0 is a fresh codebase with a different, faster direction finder and a C++ backend.
 
+[![PyPI version](https://img.shields.io/pypi/v/oqboost.svg)](https://pypi.org/project/oqboost/)
+[![Python versions](https://img.shields.io/pypi/pyversions/oqboost.svg)](https://pypi.org/project/oqboost/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Build](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml/badge.svg)](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml)
 
 <p align="center">
   <img src="docs/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
