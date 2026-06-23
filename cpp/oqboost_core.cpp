@@ -143,7 +143,18 @@ struct Params {
   unsigned seed = 42;
   int objective = 0;
   int fast_dir = 0;  // 1=H-가중 gradient 회귀 방향(그리드/BHC 생략), 0=BHC seed
+  // 회귀 손실: 0=squared(L2), 1=huber(robust), 2=quantile(pinball).
+  int loss = 0;
+  double alpha = 0.9;  // huber: |residual| delta 분위 / quantile: 목표 분위
+  int clip = 0;        // 1=예측을 train 타깃 [min,max]로 clamp (외삽 폭주 방지)
 };
+
+// ─── 단일 히스토그램 해상도 (전역 사전 binning과 2D 투영 threshold 스캔이
+// 공유). Booster::fit() 시작 시 P.max_bins로부터 한 번만 설정되고, 이후
+// fit 동안은 읽기 전용이라 OpenMP 스레드 간 데이터 레이스 없음. 이전에는
+// 2D 경로(refine_threshold)가 이 값을 무시하고 64를 하드코딩해서, 사용자가
+// max_bins를 바꿔도 2D 분할 품질에는 영향이 없었음 — 이제 단일 소스로 통일. ──
+static int g_hist_bins = 64;
 
 // ─── 2D 계산용 재사용 Workspace 구조체 (thread_local 대체) ───────────────────
 struct Workspace {
@@ -154,6 +165,8 @@ struct Workspace {
   std::vector<int> so;
   std::vector<int> lab;
   std::vector<double> cA, cB;
+  std::vector<double> histG,
+      histH;  // refine_threshold 재사용 버퍼 (g_hist_bins 크기)
 };
 
 // ─── SIS 스크리닝 (캐시 프렌들리 Row-major 순회로 대폭 최적화)
@@ -166,6 +179,11 @@ static std::vector<int> screen(const double* X, int d,
     std::iota(a.begin(), a.end(), 0);
     return a;
   }
+  // m=0과 m=1을 동일하게 취급: 둘 다 "피처 1개만 통과"이므로 eval_2d가
+  // pair를 만들 후보가 없어 자연히 단일 축(축 정렬) 분할로 회귀한다.
+  // 이전에는 m=0이 fs.resize(0)으로 빈 피처 목록을 반환해 모든 노드가
+  // 즉시 leaf가 되고 모델이 완전히 무력화(상수 예측)되는 버그가 있었음.
+  m = std::max(1, m);
   int n = (int)idx.size();
   double gm = 0;
   for (int i = 0; i < n; i++) gm += g[idx[i]];
@@ -283,7 +301,8 @@ static bool lsq_separator(const std::vector<double>& cA,
 // ─── 투영 위 히스토그램 임계 (Fast Path 분리 및 분기 제거) ───────────────────
 static bool refine_threshold(const std::vector<double>& proj, const double* gn,
                              const double* hn, double lam, double Gp, double Hp,
-                             double& outT, double& outGain, bool has_nan) {
+                             double& outT, double& outGain, bool has_nan,
+                             Workspace& ws) {
   int n = (int)proj.size();
   double mn = 0.0, mx = 0.0;
   bool first = true;
@@ -314,9 +333,12 @@ static bool refine_threshold(const std::vector<double>& proj, const double* gn,
   }
   if (first || (mx - mn < 1e-12)) return false;
 
-  const int B = 64;
+  const int B = g_hist_bins;
   double w = (mx - mn) / B;
-  double Gb[64] = {0}, Hb[64] = {0};
+  ws.histG.assign(B, 0.0);
+  ws.histH.assign(B, 0.0);
+  std::vector<double>& Gb = ws.histG;
+  std::vector<double>& Hb = ws.histH;
   double G_nan = 0, H_nan = 0;
 
   if (!has_nan) {
@@ -435,7 +457,7 @@ static Split eval_1d(const std::vector<FCache>& C,
 
     std::vector<int> occ;
     for (int a = 0; a < k; a++) {
-      if (Ha[a] > 0.0) occ.push_back(a);   // h>0 ⟺ 점유
+      if (Ha[a] > 0.0) occ.push_back(a);  // h>0 ⟺ 점유
     }
     if ((int)occ.size() < 2) continue;
 
@@ -480,13 +502,18 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
       double xa = cA_.col[i], xb = cB_.col[i];
       if (has_nan && (std::isnan(xa) || std::isnan(xb))) continue;
       double gi = gn[i], hi = hn[i];
-      Sh += hi; Sa += hi * xa; Sb += hi * xb;
-      Saa += hi * xa * xa; Sab += hi * xa * xb; Sbb += hi * xb * xb;
-      Sat += -gi * xa; Sbt += -gi * xb; St += -gi;  // h·t=-g
+      Sh += hi;
+      Sa += hi * xa;
+      Sb += hi * xb;
+      Saa += hi * xa * xa;
+      Sab += hi * xa * xb;
+      Sbb += hi * xb * xb;
+      Sat += -gi * xa;
+      Sbt += -gi * xb;
+      St += -gi;  // h·t=-g
     }
     if (Sh < 1e-12) return s;
-    double A00 = Saa - Sa * Sa / Sh + P.reg_lambda,
-           A01 = Sab - Sa * Sb / Sh,
+    double A00 = Saa - Sa * Sa / Sh + P.reg_lambda, A01 = Sab - Sa * Sb / Sh,
            A11 = Sbb - Sb * Sb / Sh + P.reg_lambda;
     double b0 = Sat - Sa * St / Sh, b1 = Sbt - Sb * St / Sh;
     double det = A00 * A11 - A01 * A01;
@@ -494,7 +521,8 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
     double dA = (A11 * b0 - A01 * b1) / det, dB = (A00 * b1 - A01 * b0) / det;
     double nrm = std::sqrt(dA * dA + dB * dB);
     if (nrm < 1e-12) return s;
-    coefA = dA / nrm; coefB = dB / nrm;
+    coefA = dA / nrm;
+    coefB = dB / nrm;
   } else {
     // h>0 항상참 → Hc>0 ⟺ 점유. cnt 배열 제거(샘플당 scatter write 3→2).
     ws.Gc.assign(K, 0);
@@ -571,7 +599,7 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
   }
   double t, gn2;
   if (!refine_threshold(ws.proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp, t,
-                        gn2, has_nan))
+                        gn2, has_nan, ws))
     return s;
   s.gain = gn2;
   s.type = 2;
@@ -725,16 +753,45 @@ static inline double predict_one(const std::vector<Node>& A, const double* x) {
   }
 }
 
+// 표본이 도달하는 leaf의 arena 인덱스 (leaf-value line-search용).
+static inline int leaf_index(const std::vector<Node>& A, const double* x) {
+  int ni = 0;
+  while (true) {
+    const Node& nd = A[ni];
+    if (nd.is_leaf) return ni;
+    int ch;
+    if (nd.type == 1) {
+      ch = std::isnan(x[nd.fA]) ? nd.nan_direction : (x[nd.fA] < nd.thr ? 0 : 1);
+    } else if (std::isnan(x[nd.fA]) || std::isnan(x[nd.fB])) {
+      ch = nd.nan_direction;
+    } else {
+      double s = nd.coefA * x[nd.fA] + nd.coefB * x[nd.fB] + nd.bias;
+      ch = (s < 0) ? 0 : 1;
+    }
+    ni = (ch == 0) ? nd.left : nd.right;
+  }
+}
+
+// 가중 없는 분위수 (in-place nth_element).
+static inline double quantile_inplace(std::vector<double>& v, double q) {
+  if (v.empty()) return 0.0;
+  size_t k = (size_t)std::min(v.size() - 1, (size_t)(q * (v.size() - 1) + 0.5));
+  std::nth_element(v.begin(), v.begin() + k, v.end());
+  return v[k];
+}
+
 // ─── Booster ─────────────────────────────────────────────────────────────────
 class Booster {
  public:
   Params P;
   std::vector<std::vector<Node>> trees;
   double init_score = 0;
+  double y_lo = 0, y_hi = 0;  // clip용 train 타깃 범위
   std::vector<double> importances_;  // 피처별 누적 gain
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
-          double colsample, unsigned seed, int objective, int fast_dir) {
+          double colsample, unsigned seed, int objective, int fast_dir,
+          int loss, double alpha, int clip) {
     P.n_estimators = n_estimators;
     P.learning_rate = learning_rate;
     P.max_depth = max_depth;
@@ -747,6 +804,9 @@ class Booster {
     P.seed = seed;
     P.objective = objective;
     P.fast_dir = fast_dir;
+    P.loss = loss;
+    P.alpha = alpha;
+    P.clip = clip;
   }
 
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
@@ -756,17 +816,30 @@ class Booster {
     int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
     const double* X = (const double*)Xb.ptr;
     const double* y = (const double*)yb.ptr;
+    // 단일 소스로 통일: max_bins가 전역 사전 binning과 2D threshold 스캔
+    // 해상도를 동시에 결정. fit() 호출당 한 번만 쓰고 이후 읽기 전용.
+    g_hist_bins = std::max(2, P.max_bins);
     Bins B = precompute_bins(X, n, d, P.max_bins);
 
     double ybar = 0;
     for (int i = 0; i < n; i++) ybar += y[i];
     ybar /= n;
+    y_lo = y_hi = (n ? y[0] : 0.0);
+    for (int i = 0; i < n; i++) { y_lo = std::min(y_lo, y[i]); y_hi = std::max(y_hi, y[i]); }
     if (P.objective == 0) {
       double y2 = std::min(std::max(ybar, 1e-6), 1 - 1e-6);
       init_score = std::log(y2 / (1 - y2));
-    } else
-      init_score = ybar;
-    std::vector<double> raw(n, init_score), g(n), h(n);
+    } else if (P.loss == 0) {
+      init_score = ybar;  // squared → mean
+    } else {
+      // huber/quantile → median (이상치에 robust한 시작점)
+      std::vector<double> ys(y, y + n);
+      size_t mid = ys.size() / 2;
+      std::nth_element(ys.begin(), ys.begin() + mid, ys.end());
+      init_score = ys[mid];
+    }
+    std::vector<double> raw(n, init_score), g(n), h(n), absr;
+    if (P.objective == 1 && P.loss == 1) absr.resize(n);  // huber delta 계산용
     trees.clear();
     trees.reserve(P.n_estimators);
     importances_.assign(d, 0.0);
@@ -783,10 +856,29 @@ class Booster {
           g[i] = p - y[i];
           h[i] = p * (1 - p);
         }
-      } else {
+      } else if (P.loss == 0) {  // squared (L2)
 #pragma omp parallel for
         for (int i = 0; i < n; i++) {
           g[i] = raw[i] - y[i];
+          h[i] = 1.0;
+        }
+      } else if (P.loss == 1) {  // huber — delta 안은 L2, 밖은 clip된 상수 gradient
+        for (int i = 0; i < n; i++) absr[i] = std::fabs(raw[i] - y[i]);
+        size_t k = (size_t)(P.alpha * (n - 1));
+        std::nth_element(absr.begin(), absr.begin() + k, absr.end());
+        double delta = absr[k];
+        if (delta <= 0) delta = 1e-12;
+#pragma omp parallel for
+        for (int i = 0; i < n; i++) {
+          double r = raw[i] - y[i];
+          g[i] = r > delta ? delta : (r < -delta ? -delta : r);
+          h[i] = 1.0;
+        }
+      } else {  // quantile (pinball), 목표 분위 alpha
+#pragma omp parallel for
+        for (int i = 0; i < n; i++) {
+          double r = y[i] - raw[i];
+          g[i] = r > 0 ? -P.alpha : (1.0 - P.alpha);
           h[i] = 1.0;
         }
       }
@@ -801,6 +893,17 @@ class Booster {
       arena.reserve(256);
       build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng,
             importances_);
+
+      // quantile: gradient는 부호뿐(±α)이라 -G/H leaf 값이 무의미 → 트리 구조는
+      // gradient로 만들되 leaf 값을 멤버 residual의 alpha-분위로 line-search.
+      if (P.objective == 1 && P.loss == 2) {
+        std::vector<std::vector<double>> res(arena.size());
+        for (int i : rows)
+          res[leaf_index(arena, X + (size_t)i * d)].push_back(y[i] - raw[i]);
+        for (size_t li = 0; li < arena.size(); li++)
+          if (arena[li].is_leaf && !res[li].empty())
+            arena[li].weight = quantile_inplace(res[li], P.alpha);
+      }
 
 #pragma omp parallel for
       for (int i = 0; i < n; i++)
@@ -822,6 +925,7 @@ class Booster {
       double r = init_score;
       const double* x = X + (size_t)i * d;
       for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x);
+      if (P.clip) r = r < y_lo ? y_lo : (r > y_hi ? y_hi : r);
       op[i] = r;
     }
     return out;
@@ -862,12 +966,13 @@ class Booster {
   // Node는 POD라 memcpy 가능. 동일 플랫폼/버전 간 pickle 용도.
   py::bytes serialize() const {
     std::string buf;
-    auto wr = [&](const void* p, size_t n) {
-      buf.append((const char*)p, n);
-    };
+    auto wr = [&](const void* p, size_t n) { buf.append((const char*)p, n); };
     wr(&init_score, sizeof(double));
     wr(&P.learning_rate, sizeof(double));
     wr(&P.objective, sizeof(int));
+    wr(&P.clip, sizeof(int));
+    wr(&y_lo, sizeof(double));
+    wr(&y_hi, sizeof(double));
     int di = (int)importances_.size();
     wr(&di, sizeof(int));
     if (di) wr(importances_.data(), (size_t)di * sizeof(double));
@@ -892,6 +997,9 @@ class Booster {
     rd(&init_score, sizeof(double));
     rd(&P.learning_rate, sizeof(double));
     rd(&P.objective, sizeof(int));
+    rd(&P.clip, sizeof(int));
+    rd(&y_lo, sizeof(double));
+    rd(&y_hi, sizeof(double));
     int di;
     rd(&di, sizeof(int));
     importances_.resize(di);
@@ -911,13 +1019,14 @@ class Booster {
 PYBIND11_MODULE(oqboost_core, m) {
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
-                    unsigned, int, int>(),
+                    unsigned, int, int, int, double, int>(),
            py::arg("n_estimators") = 60, py::arg("learning_rate") = 0.12,
            py::arg("max_depth") = 4, py::arg("max_bins") = 64,
            py::arg("reg_lambda") = 1.0, py::arg("min_samples") = 10,
            py::arg("n_screen") = -1, py::arg("subsample") = 1.0,
            py::arg("colsample") = 1.0, py::arg("seed") = 42,
-           py::arg("objective") = 0, py::arg("fast_dir") = 0)
+           py::arg("objective") = 0, py::arg("fast_dir") = 0,
+           py::arg("loss") = 0, py::arg("alpha") = 0.9, py::arg("clip") = 0)
       .def("fit", &Booster::fit)
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)

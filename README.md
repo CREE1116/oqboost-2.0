@@ -132,6 +132,10 @@ See [`docs/MODEL.md`](docs/MODEL.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 | `colsample` | 0.8 | features per node |
 | `reg_lambda` | 1.0 | L2 |
 | `n_screen` | -1 | SIS top-m feature screening (-1 = exhaustive) |
+| `threshold` | `"0.5"` | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (helps imbalanced data; probabilities stay calibrated) |
+| `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust (init = median) |
+| `alpha` | 0.9 | huber: residual quantile for the δ transition · quantile: target quantile |
+| `clip` | `False` | clamp regression output to the training target range (no extrapolation blow-up) |
 
 ---
 

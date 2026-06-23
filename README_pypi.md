@@ -57,6 +57,10 @@ Both are drop-in scikit-learn estimators — usable in `Pipeline`, `GridSearchCV
 | `colsample` | 0.8 | features per node |
 | `reg_lambda` | 1.0 | L2 regularization |
 | `n_screen` | -1 | SIS top-m feature screening (-1 = exhaustive) |
+| `threshold` | `"0.5"` | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (imbalanced data) |
+| `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust |
+| `alpha` | 0.9 | huber δ-quantile / quantile target |
+| `clip` | `False` | clamp regression output to training target range |
 
 ## Why oblique
 

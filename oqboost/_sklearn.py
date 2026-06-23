@@ -9,9 +9,21 @@ OQBoostRegressor  : 회귀 (squared error)
 import inspect
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.metrics import balanced_accuracy_score, f1_score
+from sklearn.model_selection import train_test_split
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
 from . import oqboost_core as _core
+
+# threshold="..." → 최적화 메트릭. proba는 calibrated이므로 0.5가 기본이지만
+# 불균형 데이터에서 balanced accuracy/F1은 다른 cut이 최적.
+_THRESHOLD_METRICS = {
+    "balanced": balanced_accuracy_score,
+    "f1":       lambda yt, yp: f1_score(yt, yp, zero_division=0),
+}
+
+# 회귀 손실 → C++ loss 코드. squared=L2, huber=robust, quantile=pinball.
+_LOSS = {"squared": 0, "huber": 1, "quantile": 2}
 
 # NaN 허용 (C++ 백엔드가 결측치 native 처리). sklearn 버전별 인자명 호환.
 _FINITE_KW = ("ensure_all_finite"
@@ -42,6 +54,10 @@ class _BaseOQBoost(BaseEstimator):
         subsample: float = 0.8,
         colsample: float = 0.8,
         fast_dir: int = 1,   # H-가중 gradient 회귀 방향(기본). 0=BHC seed(legacy)
+        threshold="0.5",     # 0.5 | "balanced" | "f1" — 이진 결정 cut (분류기만)
+        loss: str = "squared",   # 회귀 손실: squared | huber | quantile (회귀기만)
+        alpha: float = 0.9,      # huber=delta 분위 / quantile=목표 분위 (회귀기만)
+        clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
         random_state: int = 42,
     ):
         self.n_estimators = n_estimators
@@ -54,6 +70,10 @@ class _BaseOQBoost(BaseEstimator):
         self.subsample = subsample
         self.colsample = colsample
         self.fast_dir = fast_dir
+        self.threshold = threshold
+        self.loss = loss
+        self.alpha = alpha
+        self.clip = clip
         self.random_state = random_state
 
     # ── pickle 직렬화: C++ 부스터를 bytes로 변환/복원 ────────────────────
@@ -84,6 +104,8 @@ class _BaseOQBoost(BaseEstimator):
         return self._booster.feature_importances()
 
     def _make_booster(self, objective: int):
+        if self.loss not in _LOSS:
+            raise ValueError(f"loss='{self.loss}' 미지원 ({' | '.join(_LOSS)})")
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
             max_depth=self.max_depth, max_bins=self.max_bins,
@@ -91,6 +113,7 @@ class _BaseOQBoost(BaseEstimator):
             n_screen=self.n_screen, subsample=self.subsample,
             colsample=self.colsample, seed=int(self.random_state),
             objective=objective, fast_dir=self.fast_dir,
+            loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
         )
 
 
@@ -106,17 +129,48 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
             raise ValueError("클래스가 2개 미만입니다.")
         elif len(self.classes_) == 2:
             self._multiclass = False
+            ybin = (y == self.classes_[1]).astype(float)
+            self.decision_threshold_ = self._fit_threshold(Xc, ybin)
             self._booster = self._make_booster(objective=0)
-            self._booster.fit(Xc, (y == self.classes_[1]).astype(float))
+            self._booster.fit(Xc, ybin)
         else:
             # one-vs-rest: 클래스마다 이진 부스터
             self._multiclass = True
+            self.decision_threshold_ = 0.5  # 다중클래스는 argmax, cut 미사용
             self._boosters = []
             for cls in self.classes_:
                 b = self._make_booster(objective=0)
                 b.fit(Xc, (y == cls).astype(float))
                 self._boosters.append(b)
         return self
+
+    def _fit_threshold(self, Xc, ybin):
+        """이진 결정 cut 결정. float이면 그대로, 메트릭명이면 holdout서 최적화.
+
+        proba는 calibrated이므로 0.5가 기본. 불균형 데이터에서 balanced
+        accuracy/F1을 극대화하려면 cut을 옮겨야 함 → stratified holdout에서
+        보조 부스터로 OOF proba를 얻어 최적 threshold 탐색(누수 없음).
+        """
+        try:
+            return float(self.threshold)
+        except (TypeError, ValueError):
+            pass
+        metric = _THRESHOLD_METRICS.get(self.threshold)
+        if metric is None:
+            raise ValueError(f"threshold='{self.threshold}' 미지원 "
+                             f"(0.5 | {' | '.join(_THRESHOLD_METRICS)})")
+        # 양/음 클래스 모두 최소 2개 있어야 stratify 가능
+        if min(int(ybin.sum()), int((1 - ybin).sum())) < 2:
+            return 0.5
+        Xt, Xh, yt, yh = train_test_split(
+            Xc, ybin, test_size=0.25, stratify=ybin,
+            random_state=int(self.random_state))
+        aux = self._make_booster(objective=0)
+        aux.fit(np.ascontiguousarray(Xt), yt)
+        ph = aux.predict_proba(np.ascontiguousarray(Xh))[:, 1]
+        cands = np.unique(np.quantile(ph, np.linspace(0.02, 0.98, 49)))
+        scores = [metric(yh, (ph >= t).astype(int)) for t in cands]
+        return float(cands[int(np.argmax(scores))])
 
     def predict_proba(self, X):
         check_is_fitted(self, "_multiclass")
@@ -131,7 +185,8 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
     def predict(self, X):
         P = self.predict_proba(X)
         if not self._multiclass:
-            return self.classes_[(P[:, 1] >= 0.5).astype(int)]
+            t = getattr(self, "decision_threshold_", 0.5)
+            return self.classes_[(P[:, 1] >= t).astype(int)]
         return self.classes_[P.argmax(axis=1)]
 
     @property

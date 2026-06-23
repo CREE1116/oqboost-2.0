@@ -13,7 +13,8 @@
 |---|------|--------|------|
 | ☑ | **Model serialization** | 낮음 | ✅ 완료. C++ `serialize/deserialize`(Node POD memcpy) + 래퍼 `__getstate__/__setstate__` → pickle·joblib 호환. |
 | ☑ | **Feature importance** | 낮음 | ✅ 완료. 채택 분할 gain 피처별 누적 → `feature_importances_`(정규화), pickle 보존. |
-| ☐ | **Regression 안정화** | 낮음 | 현 squared-error에 Huber/quantile 손실, 출력 클리핑, init=median 옵션. |
+| ☑ | **분류 threshold 튜닝** | 낮음 | ✅ 완료. `threshold="balanced"/"f1"` → holdout서 cut 최적화(`decision_threshold_`). proba는 calibrated(mean≈base rate)이나 불균형서 0.5 cut은 bacc 붕괴 → 옮겨야 함. 기본 0.5 유지. |
+| ☑ | **Regression 안정화** | 낮음 | ✅ 완료. `loss="huber"/"quantile"`(robust 손실), `clip`(예측 train 범위 clamp), huber/quantile은 init=median 자동. quantile은 leaf-value line-search(분위수 재계산). 이상치 train서 huber/median MAE ≪ squared. 한계: 극단 분위(α≈0.9) interval은 shallow tree서 안쪽 편향(median은 정확). |
 | ☐ | **Thread scaling** | 중 | 현 노드별 쌍병렬은 small-data서 fork-join 한계. 트리내부/배치 predict 병렬 개선, OMP 스케줄 튜닝. |
 | ☐ | **Monotonic constraints** | 중 | 피처별 단조 제약 → oblique서 까다로움(선형결합 부호 제약). 1D 분할엔 쉬움, 2D는 coef 부호 제약. |
 | ◐ | **Multi-class** | 중 | ✅ OvR(클래스별 이진 부스터, 행 정규화) 완료 — iris acc 1.0. ☐ 네이티브 softmax(K-출력)는 후속. |

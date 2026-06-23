@@ -28,10 +28,11 @@ def oq_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
                 max_depth=t.suggest_int("max_depth", 1, 4),
-                max_bins=t.suggest_int("max_bins", 8, 32),
+                max_bins=t.suggest_int("max_bins", 8, 255),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
                 reg_lambda=t.suggest_float("reg_lambda", 0.1, 5.0, log=True),
+                n_screen = t.suggest_int("n_screen", 16, 16),
                 random_state=SEED)
 
 def xgb_params(t):

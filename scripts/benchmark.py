@@ -34,6 +34,14 @@ def _infer_time(m, X, reps=5):
     return float(np.median(ts))
 
 
+def _best_threshold(y, proba):
+    """val에서 balanced accuracy 극대화 cut. 불균형서 0.5는 다수class로 붕괴 →
+    모든 모델 동일 절차로 튜닝해야 acc/bacc 비교가 공정."""
+    cands = np.unique(np.quantile(proba, np.linspace(0.02, 0.98, 49)))
+    scores = [balanced_accuracy_score(y, (proba >= t).astype(int)) for t in cands]
+    return float(cands[int(np.argmax(scores))])
+
+
 def main():
     if not PARAMS_JSON.exists():
         sys.exit(f"[!] {PARAMS_JSON} 없음. 먼저 `python optimize.py` 실행.")
@@ -42,20 +50,22 @@ def main():
     rows = []
     for name, X, y in load_openml_suite()[:N_DATA]:
         Xtr, Xva, Xtt, ytr, yva, ytt = split_tvt(X, y)
-        Xtrv = np.vstack([Xtr, Xva]); ytrv = np.concatenate([ytr, yva])
         for mname in MODELS:
             params = cache.get(name, {}).get(mname)
             if params is None:
                 continue
             m = build(mname, params)
-            t0 = time.perf_counter(); m.fit(Xtrv, ytrv); train_s = time.perf_counter() - t0
+            # train에 적합 → val에서 threshold 튜닝 → test 평가 (전 모델 동일, 무누수)
+            t0 = time.perf_counter(); m.fit(Xtr, ytr); train_s = time.perf_counter() - t0
+            thr = _best_threshold(yva, m.predict_proba(Xva)[:, 1])
             proba = m.predict_proba(Xtt)[:, 1]
-            pred = (proba >= 0.5).astype(int)
+            pred = (proba >= thr).astype(int)
             rows.append({
                 "dataset": name, "model": mname,
                 "auc":  roc_auc_score(ytt, proba),
                 "acc":  accuracy_score(ytt, pred),
                 "bacc": balanced_accuracy_score(ytt, pred),
+                "thr":  thr,
                 "train_s": train_s,
                 "infer_s": _infer_time(m, Xtt),
             })
