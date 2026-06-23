@@ -9,3 +9,4 @@ scripts/output/
 catboost_info/
 .DS_Store
 .env
+docs/benchmark*.csv
