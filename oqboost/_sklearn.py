@@ -1,0 +1,91 @@
+"""
+_sklearn.py — OQBoost 2.0 scikit-learn 인터페이스 (C++ 백엔드 래핑)
+
+OQBoostClassifier : 이진 분류 (logistic)
+OQBoostRegressor  : 회귀 (squared error)
+
+둘 다 C++ `oqboost_core.Booster`를 백엔드로 쓴다. 2D-oblique Newton GBDT.
+"""
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+
+from . import oqboost_core as _core
+
+
+class _BaseOQBoost(BaseEstimator):
+    """공통 파라미터 + Booster 생성."""
+
+    def __init__(
+        self,
+        n_estimators: int = 120,
+        learning_rate: float = 0.06,
+        max_depth: int = 4,
+        max_bins: int = 16,
+        reg_lambda: float = 1.0,
+        min_samples: int = 10,
+        n_screen: int = -1,
+        subsample: float = 0.8,
+        colsample: float = 0.8,
+        random_state: int = 42,
+    ):
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        self.max_bins = max_bins
+        self.reg_lambda = reg_lambda
+        self.min_samples = min_samples
+        self.n_screen = n_screen
+        self.subsample = subsample
+        self.colsample = colsample
+        self.random_state = random_state
+
+    def _make_booster(self, objective: int):
+        return _core.Booster(
+            n_estimators=self.n_estimators, learning_rate=self.learning_rate,
+            max_depth=self.max_depth, max_bins=self.max_bins,
+            reg_lambda=self.reg_lambda, min_samples=self.min_samples,
+            n_screen=self.n_screen, subsample=self.subsample,
+            colsample=self.colsample, seed=int(self.random_state),
+            objective=objective,
+        )
+
+
+class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
+    """2D-oblique gradient-boosted oblique trees — 이진 분류기 (C++ 백엔드)."""
+
+    def fit(self, X, y):
+        X, y = check_X_y(X, y)
+        self.classes_ = np.unique(y)
+        if len(self.classes_) != 2:
+            raise ValueError("OQBoostClassifier는 이진 분류만 지원합니다.")
+        y01 = (y == self.classes_[1]).astype(float)
+        self.n_features_in_ = X.shape[1]
+        self._booster = self._make_booster(objective=0)
+        self._booster.fit(np.ascontiguousarray(X, dtype=float), y01)
+        return self
+
+    def predict_proba(self, X):
+        check_is_fitted(self, "_booster")
+        X = check_array(X)
+        return self._booster.predict_proba(np.ascontiguousarray(X, dtype=float))
+
+    def predict(self, X):
+        idx = (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
+        return self.classes_[idx]
+
+
+class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
+    """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
+
+    def fit(self, X, y):
+        X, y = check_X_y(X, y, y_numeric=True)
+        self.n_features_in_ = X.shape[1]
+        self._booster = self._make_booster(objective=1)
+        self._booster.fit(np.ascontiguousarray(X, dtype=float), y.astype(float))
+        return self
+
+    def predict(self, X):
+        check_is_fitted(self, "_booster")
+        X = check_array(X)
+        return self._booster.predict_raw(np.ascontiguousarray(X, dtype=float))

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "pybind11>=2.12"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oqboost"
+version = "2.0.0"
+description = "OQBoost 2.0 — gradient-boosted 2D-oblique decision trees (histogram-binned, C++ backend)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["gradient-boosting", "oblique-trees", "machine-learning", "tabular-data", "gbdt"]
+authors = [{ name = "leejongmin" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+bench = ["xgboost>=2.0", "lightgbm>=4.3", "catboost>=1.2", "pandas>=2.1", "matplotlib>=3.8"]
+dev   = ["pytest>=8.0", "pytest-cov"]
+
+[project.urls]
+Homepage   = "https://github.com/cree1116/oqboost"
+Repository = "https://github.com/cree1116/oqboost"
+Issues     = "https://github.com/cree1116/oqboost/issues"
+
+[tool.setuptools]
+packages = ["oqboost"]
