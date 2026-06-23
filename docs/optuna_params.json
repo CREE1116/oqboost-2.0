@@ -255,7 +255,7 @@
     "OQBoost": {
       "n_estimators": 150,
       "learning_rate": 0.26251660632419294,
-      "max_depth": 5,
+      "max_depth": 4,
       "max_bins": 22,
       "subsample": 0.6624074561769746,
       "colsample": 0.662397808134481,
@@ -289,13 +289,13 @@
   },
   "blood_transfusion": {
     "OQBoost": {
-      "n_estimators": 123,
-      "learning_rate": 0.03627682339808683,
-      "max_depth": 3,
-      "max_bins": 20,
-      "subsample": 0.7673797105634784,
-      "colsample": 0.8165377816588706,
-      "reg_lambda": 2.135856270344667
+      "n_estimators": 73,
+      "learning_rate": 0.02721340437451654,
+      "max_depth": 2,
+      "max_bins": 11,
+      "subsample": 0.7399112733985573,
+      "colsample": 0.8185628430819037,
+      "reg_lambda": 0.6050416982418524
     },
     "XGBoost": {
       "n_estimators": 108,
@@ -325,13 +325,13 @@
   },
   "qsar_biodeg": {
     "OQBoost": {
-      "n_estimators": 169,
-      "learning_rate": 0.058452985116778745,
-      "max_depth": 6,
-      "max_bins": 8,
-      "subsample": 0.8072989592858847,
-      "colsample": 0.68449563826785,
-      "reg_lambda": 1.8566110783756447
+      "n_estimators": 206,
+      "learning_rate": 0.04969070153340336,
+      "max_depth": 3,
+      "max_bins": 24,
+      "subsample": 0.8276155831677042,
+      "colsample": 0.950421444463226,
+      "reg_lambda": 3.0532496359513632
     },
     "XGBoost": {
       "n_estimators": 296,
@@ -361,13 +361,13 @@
   },
   "kc1": {
     "OQBoost": {
-      "n_estimators": 155,
-      "learning_rate": 0.031028704665718734,
-      "max_depth": 5,
-      "max_bins": 11,
-      "subsample": 0.7430888315260318,
-      "colsample": 0.6670698701081659,
-      "reg_lambda": 0.1261153810533948
+      "n_estimators": 300,
+      "learning_rate": 0.1443385570105834,
+      "max_depth": 2,
+      "max_bins": 19,
+      "subsample": 0.8413568102563378,
+      "colsample": 0.7958955442040835,
+      "reg_lambda": 0.11523031395040917
     },
     "XGBoost": {
       "n_estimators": 162,
@@ -399,7 +399,7 @@
     "OQBoost": {
       "n_estimators": 268,
       "learning_rate": 0.10185822566867639,
-      "max_depth": 5,
+      "max_depth": 4,
       "max_bins": 8,
       "subsample": 0.9879639408647978,
       "colsample": 0.9329770563201687,
