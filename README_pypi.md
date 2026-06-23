@@ -38,6 +38,11 @@ clf.fit(X_train, y_train)
 proba = clf.predict_proba(X_test)[:, 1]   # P(class 1)
 pred  = clf.predict(X_test)
 
+# Multiclass — pass a target with 3+ classes; handled one-vs-rest automatically
+clf.fit(X_train, y_multiclass)
+proba = clf.predict_proba(X_test)         # (n_samples, n_classes), rows sum to 1
+labels = clf.predict(X_test)
+
 # Regression (squared error)
 reg = OQBoostRegressor(n_estimators=120, learning_rate=0.06)
 reg.fit(X_train, y_train)
@@ -77,7 +82,7 @@ joblib.dump(clf, "clf.joblib")
 clf.feature_importances_         # Σ gain per feature
 clf.coefficient_importances_     # Σ gain·|coef| (direction-weighted)
 clf.interaction_importances_     # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
-phi = clf.explain(X_test)        # (n, n_features) additive contributions
+phi = clf.explain(X_test)        # (n, n_features) additive contributions — binary / regression
                                  # phi.sum(axis=1) == raw prediction − base (like SHAP)
 
 # Plots (pip install oqboost[plot])

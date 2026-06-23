@@ -143,7 +143,9 @@ phi = clf.explain(X)           # (n, n_features) additive per-sample contributio
 `explain(X)` is **additive** like SHAP — `phi.sum(axis=1)` equals the raw
 prediction minus the base score — so it lines up directly with `shap` values
 from other models, while `interaction_importances_` reads off the pairwise
-structure the oblique splits actually learned (at zero extra cost).
+structure the oblique splits actually learned (at zero extra cost). `explain(X)`
+covers binary classification and regression; for multiclass (one-vs-rest) the
+per-class attribution is ambiguous, so it is not provided there.
 
 `oqboost.plot` renders these with matplotlib (no `shap` dependency):
 
