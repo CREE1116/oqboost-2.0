@@ -89,26 +89,26 @@ ROC-AUC (OvR macro for multiclass) plus accuracy / balanced accuracy (decision t
 tuned on validation, uniformly across models); regression uses R² / RMSE / MAE.
 
 <p align="center">
-  <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test AUC across OpenML datasets" width="820">
+  <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test metrics across binary / multiclass / regression OpenML suites" width="820">
 </p>
 
-Across 12 OpenML binary datasets (each model independently Optuna-tuned):
+Across 32 OpenML datasets (each model independently Optuna-tuned). **Mean rank** of
+the primary metric per task (1 = best; ROC-AUC for classification, R² for regression),
+with outright wins in parentheses:
 
-| Model    | mean AUC rank | outright wins | mean AUC |
-| -------- | ------------: | ------------: | -------: |
-| OQBoost  |          2.17 |        5 / 12 |   0.9047 |
-| CatBoost |          2.33 |             2 |   0.9036 |
-| XGBoost  |          2.50 |             3 |   0.9040 |
-| LightGBM |          3.00 |             2 |   0.9009 |
+| Task (datasets)     |       OQBoost |  CatBoost |  XGBoost | LightGBM |
+| ------------------- | ------------: | --------: | -------: | -------: |
+| Binary (12)         | **1.92** (7)  | 2.50 (3)  | 2.38 (2) | 3.21 (0) |
+| Multiclass (10)     |     2.50 (4)  | **2.10** (3) | 2.70 (1) | 2.70 (2) |
+| Regression (10)     |     1.90 (4)  | **1.60** (5) | 3.30 (1) | 3.20 (0) |
 
-On this suite OQBoost is competitive with the established gradient-boosting
-libraries — the mean AUC rank, mean AUC, and win count are close across all four
-models, with differences mostly within run-to-run noise. Where it tends to help is
-problems with oblique/interaction structure: on the 2D synthetic problems (XOR,
-Spiral, Checkerboard) all four reach comparable AUC, but OQBoost represents the
-diagonal boundaries directly rather than as axis-aligned steps (see figure above).
-Results depend on tuning budget and dataset choice; treat the table as one
-reproducible snapshot, not a definitive ranking.
+OQBoost is competitive with the established gradient-boosting libraries across all
+three task types — it leads the binary suite on mean rank and wins, and lands a close
+second to CatBoost on multiclass and regression. On the classification suites it also
+has the best mean balanced accuracy (binary 0.851, multiclass 0.830). Differences are
+generally small and tuning/dataset dependent; treat this as one reproducible snapshot,
+not a definitive ranking. Where the oblique structure helps most is interaction-heavy
+problems — see the 2D synthetic boundaries above.
 
 ---
 
