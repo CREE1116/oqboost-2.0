@@ -18,7 +18,7 @@
 | ☑ | **Thread scaling** | 중 | ✅ 완료. 작업량(쌍수×표본수) 임계 이하 노드는 serial 폴백(`if` clause)으로 fork-join 오버헤드 제거 — small-data 8스레드 회귀(0.105→0.081s) 해소. gradient/raw/predict n-루프도 임계 가드. big-data 4코어 ~2.8x(70%) 유지, 스레드 수 무관 bit-identical. |
 | ☑ | **Monotonic constraints** | 중 | ✅ 완료. `monotone_constraints`(-1/0/+1, list 또는 dict). 풀 oblique 단조: 고정 타피처 직선 위 사선분할=단일 threshold라 axis 기법(중점 값-경계 전파 + leaf clamp)이 이식됨. 쌍 둘다 제약시 `sign(coefA)·mA==sign(coefB)·mB` 사분면 feasibility, 충돌시 1D 폴백. 검증: 위반 step 0. |
 | ◐ | **Multi-class** | 중 | ✅ OvR(클래스별 이진 부스터, 행 정규화) 완료 — iris acc 1.0. ☐ 네이티브 softmax(K-출력)는 후속. |
-| ☐ | **SHAP 유사 해석** | 중~높 | TreeSHAP는 axis-tree 가정 → oblique엔 직접 적용 불가. 경로기여 근사 또는 KernelSHAP 래핑. |
+| ☑ | **OQBoost 네이티브 설명** | 중~높 | ✅ 완료. TreeSHAP 복제 대신 oblique 고유 설명: `coefficient_importances_`(Σ gain·|coef|), `interaction_importances_`(d×d, Σ gain·|a|·|b| — 사선쌍 상호작용, 비용 0), `explain(x)`(트리기여 lr·w를 경로 피처에 gain·|coef| 비율 분배 → **Σφ=예측−base 가산적**, SHAP 직접 비교 가능). 이진·회귀 지원. |
 | ☐ | **Native categorical** | 중~높 | ablation상 continuous가 이김 → 고카디널리티 전용 set-partition(LightGBM식 gradient 정렬) 검토. 신중히. |
 | ☑ | **Incremental training** | 높 | ✅ 완료. `warm_start=True` + `n_estimators`↑ → 기존 트리 위에 추가분만 학습(`fit_more`). raw 상태는 저장 트리로 재구성(상태 저장 불필요), rng 멤버화로 시퀀스 연속. 이진/회귀/다중클래스(OvR) 지원. subsample=1서 scratch와 bit-identical 검증. |
 | ☐ | **Out-of-core** | 높 | 데이터 청크 스트리밍 + 디스크 binning. 대용량용. |

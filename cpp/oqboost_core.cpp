@@ -136,6 +136,7 @@ struct Node {
   double thr = 0, coefA = 0, coefB = 0, bias = 0;
   int left = -1, right = -1;
   int nan_direction = 0;
+  double gain = 0;  // 채택 분할 gain (explain 경로 귀속용)
 };
 struct Params {
   int n_estimators = 60, max_depth = 4, max_bins = 64, min_samples = 10;
@@ -677,6 +678,7 @@ static int build(std::vector<Node>& arena, const double* X, int d,
                  const std::vector<bool>& has_nan, const std::vector<double>& g,
                  const std::vector<double>& h, std::vector<int> idx, int depth,
                  const Params& P, std::mt19937& rng, std::vector<double>& imp,
+                 std::vector<double>& coef_imp, std::vector<double>& inter,
                  double lo, double hi) {
   double Gp = 0, Hp = 0;
   for (int i : idx) {
@@ -732,6 +734,16 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   // feature importance: 채택된 분할의 gain을 참여 피처에 누적
   imp[bs.fA] += bs.gain;
   if (bs.type == 2) imp[bs.fB] += bs.gain;
+  // OQBoost 네이티브 설명: 계수 가중 importance + 사선쌍 interaction.
+  if (bs.type == 1) {
+    coef_imp[bs.fA] += bs.gain;  // 1D는 coef=1
+  } else {
+    double aA = std::fabs(bs.coefA), aB = std::fabs(bs.coefB);
+    coef_imp[bs.fA] += bs.gain * aA;
+    coef_imp[bs.fB] += bs.gain * aB;
+    inter[(size_t)bs.fA * d + bs.fB] += bs.gain * aA * aB;  // 상삼각(fA<fB)
+  }
+  arena[ni].gain = bs.gain;
   arena[ni].is_leaf = false;
   arena[ni].type = bs.type;
   arena[ni].fA = bs.fA;
@@ -772,9 +784,9 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   }
 
   int L = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(li),
-                depth + 1, P, rng, imp, lo_l, hi_l);
+                depth + 1, P, rng, imp, coef_imp, inter, lo_l, hi_l);
   int R = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(ri),
-                depth + 1, P, rng, imp, lo_r, hi_r);
+                depth + 1, P, rng, imp, coef_imp, inter, lo_r, hi_r);
   arena[ni].left = L;
   arena[ni].right = R;
   return ni;
@@ -837,7 +849,10 @@ class Booster {
   std::vector<std::vector<Node>> trees;
   double init_score = 0;
   double y_lo = 0, y_hi = 0;  // clip용 train 타깃 범위
+  int d_ = 0;                        // 피처 수 (interaction reshape용)
   std::vector<double> importances_;  // 피처별 누적 gain
+  std::vector<double> coef_imp_;     // Σ gain·|coef| (계수 가중 importance)
+  std::vector<double> inter_;        // d×d 상삼각: Σ gain·|a|·|b| (사선쌍 interaction)
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
@@ -892,7 +907,10 @@ class Booster {
     std::vector<double> raw(n, init_score);
     trees.clear();
     trees.reserve(P.n_estimators);
+    d_ = d;
     importances_.assign(d, 0.0);
+    coef_imp_.assign(d, 0.0);
+    inter_.assign((size_t)d * d, 0.0);
     rng_.seed(P.seed);
     boost_rounds(X, y, n, d, B, raw, P.n_estimators);
   }
@@ -977,7 +995,8 @@ class Booster {
       std::vector<Node> arena;
       arena.reserve(256);
       build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng_,
-            importances_, -std::numeric_limits<double>::infinity(),
+            importances_, coef_imp_, inter_,
+            -std::numeric_limits<double>::infinity(),
             std::numeric_limits<double>::infinity());
 
       // quantile: gradient는 부호뿐(±α)이라 -G/H leaf 값이 무의미 → 트리 구조는
@@ -1050,6 +1069,79 @@ class Booster {
     return out;
   }
 
+  // 계수 가중 importance: Σ gain·|coef| (정규화). oblique 방향 기여 반영.
+  py::array_t<double> coefficient_importances() const {
+    int d = (int)coef_imp_.size();
+    auto out = py::array_t<double>(d);
+    double* op = (double*)out.request().ptr;
+    double s = 0;
+    for (double v : coef_imp_) s += v;
+    for (int i = 0; i < d; i++) op[i] = s > 0 ? coef_imp_[i] / s : 0.0;
+    return out;
+  }
+
+  // 사선쌍 interaction 행렬 d×d 상삼각: Σ gain·|a|·|b| (정규화). 계산비용 0(누적).
+  py::array_t<double> interaction_importances() const {
+    auto out = py::array_t<double>({(py::ssize_t)d_, (py::ssize_t)d_});
+    double* op = (double*)out.request().ptr;
+    double s = 0;
+    for (double v : inter_) s += v;
+    for (size_t i = 0; i < inter_.size(); i++) op[i] = s > 0 ? inter_[i] / s : 0.0;
+    return out;
+  }
+
+  // explain: 표본별 가산적 피처 기여 (n, d). 각 트리 기여 lr·w_leaf를 경유한
+  // 분할 피처들에 gain·|coef| 비율로 분배 → Σ_i φ_i = 예측 − init_score (SHAP처럼
+  // 가산적). "왜 이 예측?"에 답하며 타 모델 SHAP과 직접 비교 가능.
+  py::array_t<double> explain(
+      py::array_t<double, py::array::c_style | py::array::forcecast> Xa) {
+    auto Xb = Xa.request();
+    int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
+    const double* X = (const double*)Xb.ptr;
+    auto out = py::array_t<double>({(py::ssize_t)n, (py::ssize_t)d});
+    double* op = (double*)out.request().ptr;
+    std::fill(op, op + (size_t)n * d, 0.0);
+    double lr = P.learning_rate;
+    int cap = 4 * P.max_depth + 8;  // 경로 최대 분할 피처 수 여유
+
+#pragma omp parallel for if (n > 2000)
+    for (int i = 0; i < n; i++) {
+      const double* x = X + (size_t)i * d;
+      double* phi = op + (size_t)i * d;
+      std::vector<int> pf(cap);
+      std::vector<double> pr(cap);
+      for (auto& tr : trees) {
+        int ni = 0, np = 0;
+        double tot = 0;
+        while (!tr[ni].is_leaf) {
+          const Node& nd = tr[ni];
+          int ch;
+          if (nd.type == 1) {
+            bool nan = std::isnan(x[nd.fA]);
+            ch = nan ? nd.nan_direction : (x[nd.fA] < nd.thr ? 0 : 1);
+            if (!nan && np < cap) { pf[np] = nd.fA; pr[np] = nd.gain; tot += nd.gain; np++; }
+          } else {
+            bool nan = std::isnan(x[nd.fA]) || std::isnan(x[nd.fB]);
+            if (nan) {
+              ch = nd.nan_direction;
+            } else {
+              double s = nd.coefA * x[nd.fA] + nd.coefB * x[nd.fB] + nd.bias;
+              ch = s < 0 ? 0 : 1;
+              double rA = nd.gain * std::fabs(nd.coefA), rB = nd.gain * std::fabs(nd.coefB);
+              if (np < cap) { pf[np] = nd.fA; pr[np] = rA; tot += rA; np++; }
+              if (np < cap) { pf[np] = nd.fB; pr[np] = rB; tot += rB; np++; }
+            }
+          }
+          ni = ch == 0 ? nd.left : nd.right;
+        }
+        double c = lr * tr[ni].weight;  // 이 트리의 예측 기여
+        if (tot > 0)
+          for (int k = 0; k < np; k++) phi[pf[k]] += c * pr[k] / tot;
+      }
+    }
+    return out;
+  }
+
   // ── 직렬화 (predict에 필요한 상태만: init_score, lr, objective, trees) ──
   // Node는 POD라 memcpy 가능. 동일 플랫폼/버전 간 pickle 용도.
   py::bytes serialize() const {
@@ -1064,6 +1156,12 @@ class Booster {
     int di = (int)importances_.size();
     wr(&di, sizeof(int));
     if (di) wr(importances_.data(), (size_t)di * sizeof(double));
+    // 설명용 누적치 (coef importance, interaction d×d, d_)
+    wr(&d_, sizeof(int));
+    if (di) wr(coef_imp_.data(), (size_t)di * sizeof(double));
+    int isz = (int)inter_.size();
+    wr(&isz, sizeof(int));
+    if (isz) wr(inter_.data(), (size_t)isz * sizeof(double));
     int nt = (int)trees.size();
     wr(&nt, sizeof(int));
     for (auto& tr : trees) {
@@ -1092,6 +1190,13 @@ class Booster {
     rd(&di, sizeof(int));
     importances_.resize(di);
     if (di) rd(importances_.data(), (size_t)di * sizeof(double));
+    rd(&d_, sizeof(int));
+    coef_imp_.resize(di);
+    if (di) rd(coef_imp_.data(), (size_t)di * sizeof(double));
+    int isz;
+    rd(&isz, sizeof(int));
+    inter_.resize(isz);
+    if (isz) rd(inter_.data(), (size_t)isz * sizeof(double));
     int nt;
     rd(&nt, sizeof(int));
     trees.assign(nt, {});
@@ -1122,6 +1227,9 @@ PYBIND11_MODULE(oqboost_core, m) {
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)
       .def("feature_importances", &Booster::feature_importances)
+      .def("coefficient_importances", &Booster::coefficient_importances)
+      .def("interaction_importances", &Booster::interaction_importances)
+      .def("explain", &Booster::explain)
       .def("serialize", &Booster::serialize)
       .def("deserialize", &Booster::deserialize);
 }

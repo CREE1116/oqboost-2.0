@@ -107,6 +107,30 @@ class _BaseOQBoost(BaseEstimator):
         check_is_fitted(self, "_booster")
         return self._booster.feature_importances()
 
+    @property
+    def coefficient_importances_(self):
+        """계수 가중 importance: Σ gain·|coef| (정규화). oblique 방향 기여 반영."""
+        check_is_fitted(self, "_booster")
+        return self._booster.coefficient_importances()
+
+    @property
+    def interaction_importances_(self):
+        """사선쌍 interaction 행렬 (d×d 상삼각, 정규화): Σ gain·|a|·|b|.
+
+        OQBoost 고유 — 모든 분할이 피처쌍이라 학습된 상호작용이 트리에 그대로
+        들어있다. `[i, j]`(i<j)가 피처 i,j의 상호작용 세기."""
+        check_is_fitted(self, "_booster")
+        return self._booster.interaction_importances()
+
+    def explain(self, X):
+        """표본별 피처 기여 (n, n_features). φ_i = Σ_경유분할 lr·gain·|coef_i|·dir.
+
+        경유한 경로의 분할만 사용 → "왜 이 예측이 나왔는가"에 직접 답한다.
+        양수는 예측을 끌어올린 피처, 음수는 끌어내린 피처."""
+        check_is_fitted(self, "_booster")
+        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        return self._booster.explain(Xc)
+
     def _make_booster(self, objective: int):
         if self.loss not in _LOSS:
             raise ValueError(f"loss='{self.loss}' 미지원 ({' | '.join(_LOSS)})")
@@ -238,6 +262,34 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
         # OvR: 부스터 평균
         fi = np.mean([b.feature_importances() for b in self._boosters], axis=0)
         return fi / fi.sum() if fi.sum() > 0 else fi
+
+    def _avg_norm(self, attr):
+        v = np.mean([getattr(b, attr)() for b in self._boosters], axis=0)
+        s = v.sum()
+        return v / s if s > 0 else v
+
+    @property
+    def coefficient_importances_(self):
+        check_is_fitted(self, "_multiclass")
+        if not self._multiclass:
+            return self._booster.coefficient_importances()
+        return self._avg_norm("coefficient_importances")
+
+    @property
+    def interaction_importances_(self):
+        check_is_fitted(self, "_multiclass")
+        if not self._multiclass:
+            return self._booster.interaction_importances()
+        return self._avg_norm("interaction_importances")
+
+    def explain(self, X):
+        check_is_fitted(self, "_multiclass")
+        if self._multiclass:
+            raise NotImplementedError(
+                "explain()은 이진 분류·회귀 전용 (다중클래스 OvR은 클래스별 "
+                "부스터라 단일 귀속이 모호). 클래스별로 풀려면 OvR 부스터를 직접 사용.")
+        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        return self._booster.explain(Xc)
 
 
 class OQBoostRegressor(_BaseOQBoost, RegressorMixin):

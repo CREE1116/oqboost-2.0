@@ -120,6 +120,24 @@ See [`docs/MODEL.md`](docs/MODEL.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ---
 
+## Explainability
+
+Because every split is a 2D oblique combination, OQBoost exposes **native**
+explanations rather than copying TreeSHAP (which assumes axis-aligned trees):
+
+```python
+clf.coefficient_importances_   # Σ gain·|coef| per feature (direction-weighted)
+clf.interaction_importances_   # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
+phi = clf.explain(X)           # (n, n_features) additive per-sample contributions
+```
+
+`explain(X)` is **additive** like SHAP — `phi.sum(axis=1)` equals the raw
+prediction minus the base score — so it lines up directly with `shap` values
+from other models, while `interaction_importances_` reads off the pairwise
+structure the oblique splits actually learned (at zero extra cost).
+
+---
+
 ## Key hyperparameters
 
 | Param | Default | Meaning |
