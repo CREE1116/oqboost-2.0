@@ -3,9 +3,9 @@
 **Gradient-boosted 2D-oblique decision trees — histogram-binned, C++ backend.**
 
 OQBoost splits on **oblique hyperplanes over feature pairs** (`a·u + b·v < t`) instead
-of axis-aligned thresholds, capturing diagonal and interaction boundaries that
-XGBoost/LightGBM approximate with coarse staircases. Version 2.0 is a ground-up
-redesign: a histogram-binned 2D-oblique core with a deterministic direction fit.
+of axis-aligned thresholds, so diagonal and interaction boundaries are represented
+directly rather than as axis-aligned approximations. Version 2.0 is a histogram-binned
+2D-oblique core with a deterministic direction fit.
 
 scikit-learn compatible · compiled C++ (pybind11) + OpenMP · **native missing-value
 handling** (NaN routed to a learned bin, no imputation needed).
@@ -65,10 +65,11 @@ Both are drop-in scikit-learn estimators — usable in `Pipeline`, `GridSearchCV
 
 ## Why oblique
 
-Axis-aligned boosters need many stacked cuts to approximate a diagonal boundary. On 2D
-problems (XOR, Spiral, Checkerboard) OQBoost draws **smooth diagonal boundaries with far
-fewer splits** where axis-aligned trees produce blocky staircases — reaching AUC ≈ 1.000
-on Spiral. Across Optuna-tuned tabular benchmarks it is competitive with the best boosters.
+Axis-aligned boosters need several stacked cuts to approximate a diagonal boundary,
+while an oblique split represents it directly. On 2D problems (XOR, Spiral,
+Checkerboard) OQBoost draws the diagonal boundary with oblique cuts rather than
+axis-aligned steps. On Optuna-tuned tabular benchmarks it is competitive with the
+established gradient-boosting libraries.
 
 Full benchmarks, decision-boundary figures, and design notes:
 **https://github.com/cree1116/oqboost-2.0**

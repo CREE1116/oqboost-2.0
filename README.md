@@ -2,11 +2,11 @@
 
 **Gradient-boosted 2D-oblique decision trees — histogram-binned, C++ backend.**
 
-OQBoost replaces axis-aligned splits with **oblique hyperplanes over feature pairs**
-(`a·u + b·v < t`), capturing diagonal and interaction boundaries that axis-aligned
-boosters approximate with coarse staircases. Version 2.0 is a ground-up redesign: a
-histogram-binned 2D-oblique core that finds split directions by H-weighted
-least-squares regression of the gradient — no random projections, no numerical search.
+OQBoost uses **oblique splits over feature pairs** (`a·u + b·v < t`) instead of
+axis-aligned thresholds, so diagonal and interaction boundaries are represented
+directly rather than as axis-aligned approximations. Version 2.0 is a histogram-binned
+2D-oblique core that finds split directions by H-weighted least-squares regression of
+the gradient (no random projections or numerical search), with a C++ backend.
 
 > **Lineage:** OQBoost 1.x ([cree1116/OQBoost](https://github.com/cree1116/OQBoost))
 > found oblique directions with a Deterministic Gradient-Covariance Scan (DGCS).
@@ -19,9 +19,9 @@ least-squares regression of the gradient — no random projections, no numerical
   <img src="docs/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
 </p>
 
-Decision boundaries on synthetic 2D problems. OQBoost draws **smooth diagonal**
-boundaries (Spiral, XOR) with far fewer splits than the blocky staircases of
-axis-aligned boosters.
+Decision boundaries on synthetic 2D problems. Because splits are oblique, OQBoost
+represents diagonal boundaries (Spiral, XOR) directly rather than approximating
+them with axis-aligned steps.
 
 ---
 
@@ -90,17 +90,19 @@ Across 12 OpenML binary datasets (each model independently Optuna-tuned):
 
 | Model | mean AUC rank | outright wins | mean AUC |
 |-------|--------------:|--------------:|---------:|
-| **OQBoost** | **2.17** | **5 / 12** | **0.9047** |
+| OQBoost | 2.17 | 5 / 12 | 0.9047 |
 | CatBoost | 2.33 | 2 | 0.9036 |
 | XGBoost | 2.50 | 3 | 0.9040 |
 | LightGBM | 3.00 | 2 | 0.9009 |
 
-OQBoost ranks **first on mean AUC rank, mean AUC, and number of wins**, ahead of
-CatBoost, XGBoost and LightGBM. It is strongest on oblique/interaction structure — on the 2D
-synthetic problems (XOR, Spiral, Checkerboard) all boosters reach comparable AUC, but OQBoost
-draws **smooth diagonal boundaries** with far fewer splits where axis-aligned trees produce
-blocky staircases (see figure above). On **Spiral** OQBoost reaches AUC ≈ 1.000 — the
-smoothest boundary of all four boosters.
+On this suite OQBoost is competitive with the established gradient-boosting
+libraries — the mean AUC rank, mean AUC, and win count are close across all four
+models, with differences mostly within run-to-run noise. Where it tends to help is
+problems with oblique/interaction structure: on the 2D synthetic problems (XOR,
+Spiral, Checkerboard) all four reach comparable AUC, but OQBoost represents the
+diagonal boundaries directly rather than as axis-aligned steps (see figure above).
+Results depend on tuning budget and dataset choice; treat the table as one
+reproducible snapshot, not a definitive ranking.
 
 ---
 
