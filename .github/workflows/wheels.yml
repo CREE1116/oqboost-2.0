@@ -30,14 +30,16 @@ jobs:
           CIBW_ARCHS_LINUX: "x86_64"
           # macOS: OpenMP via libomp
           CIBW_BEFORE_ALL_MACOS: "brew install libomp || true"
-          # 빌드 후 import 스모크
-          CIBW_TEST_REQUIRES: "numpy scikit-learn"
+          # 빌드 후 import 스모크 — numpy만 (sklearn은 테스트 컨테이너서 scipy 소스빌드 유발)
+          CIBW_TEST_REQUIRES: "numpy"
           CIBW_TEST_COMMAND: >
-            python -c "from oqboost import OQBoostClassifier, OQBoostRegressor;
-            from sklearn.datasets import make_classification;
-            X,y=make_classification(n_samples=300,n_features=6,random_state=0);
-            import numpy as np;
-            print('AUC ok' if OQBoostClassifier(n_estimators=40).fit(X,y).predict_proba(X).shape==(300,2) else 'FAIL')"
+            python -c "import numpy as np;
+            from oqboost import OQBoostClassifier, OQBoostRegressor;
+            rng=np.random.default_rng(0);
+            X=rng.standard_normal((300,6)); y=(X[:,0]*X[:,1]>0).astype(int);
+            p=OQBoostClassifier(n_estimators=40).fit(X,y).predict_proba(X);
+            r=OQBoostRegressor(n_estimators=40).fit(X,y.astype(float)).predict(X);
+            assert p.shape==(300,2) and r.shape==(300,); print('smoke ok')"
 
       - uses: actions/upload-artifact@v4
         with:
