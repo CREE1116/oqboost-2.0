@@ -29,17 +29,17 @@ them with axis-aligned steps.
 
 ## Key properties
 
-| Feature | OQBoost 2.0 |
-|---------|-------------|
-| Split type | Oblique — linear combination of **two** features per node |
-| Direction finding | H-weighted gradient regression (2×2, O(1)) — deterministic, `fast_dir` |
-| Higher-order interactions | Composed via tree depth + boosting (2D atoms) |
-| Categorical features | Integer codes through the oblique path (no special encoding) |
-| Missing values | Native — NaN routed to a dedicated learned bin (no imputation needed) |
-| Speed | Global histogram binning + OpenMP-parallel pair search |
-| Tasks | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor` |
-| API | scikit-learn compatible |
-| Backend | Compiled C++ (pybind11) |
+| Feature                   | OQBoost 2.0                                                            |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Split type                | Oblique — linear combination of **two** features per node              |
+| Direction finding         | H-weighted gradient regression (2×2, O(1)) — deterministic, `fast_dir` |
+| Higher-order interactions | Composed via tree depth + boosting (2D atoms)                          |
+| Categorical features      | Integer codes through the oblique path (no special encoding)           |
+| Missing values            | Native — NaN routed to a dedicated learned bin (no imputation needed)  |
+| Speed                     | Global histogram binning + OpenMP-parallel pair search                 |
+| Tasks                     | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor`     |
+| API                       | scikit-learn compatible                                                |
+| Backend                   | Compiled C++ (pybind11)                                                |
 
 ---
 
@@ -49,8 +49,9 @@ them with axis-aligned steps.
 pip install oqboost
 ```
 
-Building from source needs `clang++`/`g++` (C++17) and, for parallelism, OpenMP
-(`brew install libomp` on macOS).
+Prebuilt wheels are provided for Windows, macOS (arm64), and Ubuntu/Linux via
+cibuildwheel. Building from source needs `clang++`/`g++` (C++17) and, for
+parallelism, OpenMP (`brew install libomp` on macOS).
 
 ## Quickstart
 
@@ -93,12 +94,12 @@ tuned on validation, uniformly across models); regression uses R² / RMSE / MAE.
 
 Across 12 OpenML binary datasets (each model independently Optuna-tuned):
 
-| Model | mean AUC rank | outright wins | mean AUC |
-|-------|--------------:|--------------:|---------:|
-| OQBoost | 2.17 | 5 / 12 | 0.9047 |
-| CatBoost | 2.33 | 2 | 0.9036 |
-| XGBoost | 2.50 | 3 | 0.9040 |
-| LightGBM | 3.00 | 2 | 0.9009 |
+| Model    | mean AUC rank | outright wins | mean AUC |
+| -------- | ------------: | ------------: | -------: |
+| OQBoost  |          2.17 |        5 / 12 |   0.9047 |
+| CatBoost |          2.33 |             2 |   0.9036 |
+| XGBoost  |          2.50 |             3 |   0.9040 |
+| LightGBM |          3.00 |             2 |   0.9009 |
 
 On this suite OQBoost is competitive with the established gradient-boosting
 libraries — the mean AUC rank, mean AUC, and win count are close across all four
@@ -133,6 +134,7 @@ Because every split is a 2D oblique combination, OQBoost exposes **native**
 explanations rather than copying TreeSHAP (which assumes axis-aligned trees):
 
 ```python
+clf.feature_importances_       # Σ gain per feature (sklearn-standard)
 clf.coefficient_importances_   # Σ gain·|coef| per feature (direction-weighted)
 clf.interaction_importances_   # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
 phi = clf.explain(X)           # (n, n_features) additive per-sample contributions
@@ -167,24 +169,38 @@ Reproduce with `python scripts/explain_demo.py`.
 
 ---
 
+## Serialization
+
+Models are pickle / joblib compatible out of the box (C++ state is serialized via the
+wrapper's `__getstate__`/`__setstate__`):
+
+```python
+import pickle, joblib
+pickle.dump(clf, open("clf.pkl", "wb"))
+clf2 = pickle.load(open("clf.pkl", "rb"))
+joblib.dump(clf, "clf.joblib")
+```
+
+---
+
 ## Key hyperparameters
 
-| Param | Default | Meaning |
-|-------|---------|---------|
-| `n_estimators` | 120 | boosting rounds |
-| `learning_rate` | 0.06 | shrinkage |
-| `max_depth` | 4 | interaction depth |
-| `max_bins` | 16 | grid / direction-seed resolution (keep small) |
-| `subsample` | 0.8 | rows per tree |
-| `colsample` | 0.8 | features per node |
-| `reg_lambda` | 1.0 | L2 |
-| `n_screen` | -1 | SIS top-m feature screening (-1 = exhaustive) |
-| `threshold` | `"0.5"` | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (helps imbalanced data; probabilities stay calibrated) |
-| `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust (init = median) |
-| `alpha` | 0.9 | huber: residual quantile for the δ transition · quantile: target quantile |
-| `clip` | `False` | clamp regression output to the training target range (no extrapolation blow-up) |
-| `monotone_constraints` | `None` | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
-| `warm_start` | `False` | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training) |
+| Param                  | Default     | Meaning                                                                                                                         |
+| ---------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `n_estimators`         | 120         | boosting rounds                                                                                                                 |
+| `learning_rate`        | 0.06        | shrinkage                                                                                                                       |
+| `max_depth`            | 4           | interaction depth                                                                                                               |
+| `max_bins`             | 16          | grid / direction-seed resolution (keep small)                                                                                   |
+| `subsample`            | 0.8         | rows per tree                                                                                                                   |
+| `colsample`            | 0.8         | features per node                                                                                                               |
+| `reg_lambda`           | 1.0         | L2                                                                                                                              |
+| `n_screen`             | -1          | SIS top-m feature screening (-1 = exhaustive)                                                                                   |
+| `threshold`            | `"0.5"`     | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (helps imbalanced data; probabilities stay calibrated)          |
+| `loss`                 | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust (init = median)                                                     |
+| `alpha`                | 0.9         | huber: residual quantile for the δ transition · quantile: target quantile                                                       |
+| `clip`                 | `False`     | clamp regression output to the training target range (no extrapolation blow-up)                                                 |
+| `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
+| `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
 
 ---
 

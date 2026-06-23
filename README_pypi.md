@@ -18,9 +18,9 @@ handling** (NaN routed to a learned bin, no imputation needed).
 pip install oqboost
 ```
 
-A prebuilt wheel is provided for macOS (arm64, CPython 3.12). On other platforms pip
-builds from source — needs a C++17 compiler (`clang++`/`g++`) and, for parallelism,
-OpenMP (`brew install libomp` on macOS).
+Prebuilt wheels are provided for Windows, macOS (arm64), and Ubuntu/Linux via
+cibuildwheel. On other platforms pip builds from source — needs a C++17 compiler
+(`clang++`/`g++`) and, for parallelism, OpenMP (`brew install libomp` on macOS).
 
 ## Quickstart
 
@@ -65,6 +65,12 @@ reg = OQBoostRegressor(monotone_constraints={0: +1, 3: -1}).fit(X_train, y_train
 clf = OQBoostClassifier(n_estimators=100, warm_start=True).fit(X_train, y_train)
 clf.set_params(n_estimators=200).fit(X_train, y_train)   # trains only +100 trees
 
+# Serialization: models are pickle / joblib compatible out of the box.
+import pickle, joblib
+pickle.dump(clf, open("clf.pkl", "wb"))
+clf2 = pickle.load(open("clf.pkl", "rb"))
+joblib.dump(clf, "clf.joblib")
+
 # Native explanations (no SHAP dependency)
 clf.feature_importances_         # Σ gain per feature
 clf.coefficient_importances_     # Σ gain·|coef| (direction-weighted)
@@ -82,21 +88,21 @@ oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 
 ## Key hyperparameters
 
-| Param | Default | Meaning |
-|-------|---------|---------|
-| `n_estimators` | 120 | boosting rounds |
-| `learning_rate` | 0.06 | shrinkage |
-| `max_depth` | 4 | interaction depth (stacked 2D cuts) |
-| `max_bins` | 16 | grid / direction-seed resolution (keep small) |
-| `subsample` | 0.8 | rows per tree (key overfit lever) |
-| `colsample` | 0.8 | features per node |
-| `reg_lambda` | 1.0 | L2 regularization |
-| `n_screen` | -1 | SIS top-m feature screening (-1 = exhaustive) |
-| `threshold` | `"0.5"` | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (imbalanced data) |
-| `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust |
-| `alpha` | 0.9 | huber δ-quantile / quantile target |
-| `clip` | `False` | clamp regression output to training target range |
-| `monotone_constraints` | `None` | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict) |
+| Param                  | Default     | Meaning                                                                           |
+| ---------------------- | ----------- | --------------------------------------------------------------------------------- |
+| `n_estimators`         | 120         | boosting rounds                                                                   |
+| `learning_rate`        | 0.06        | shrinkage                                                                         |
+| `max_depth`            | 4           | interaction depth (stacked 2D cuts)                                               |
+| `max_bins`             | 16          | grid / direction-seed resolution (keep small)                                     |
+| `subsample`            | 0.8         | rows per tree (key overfit lever)                                                 |
+| `colsample`            | 0.8         | features per node                                                                 |
+| `reg_lambda`           | 1.0         | L2 regularization                                                                 |
+| `n_screen`             | -1          | SIS top-m feature screening (-1 = exhaustive)                                     |
+| `threshold`            | `"0.5"`     | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (imbalanced data) |
+| `loss`                 | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust                       |
+| `alpha`                | 0.9         | huber δ-quantile / quantile target                                                |
+| `clip`                 | `False`     | clamp regression output to training target range                                  |
+| `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict)                |
 
 ## Why oblique
 
