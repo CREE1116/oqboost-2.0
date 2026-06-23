@@ -16,7 +16,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14, windows-latest]
+        include:
+          - { os: ubuntu-latest, macdep: "" }
+          - { os: windows-latest, macdep: "" }
+          - { os: macos-13, macdep: "13.0" }   # x86_64
+          - { os: macos-14, macdep: "14.0" }   # arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -24,11 +28,13 @@ jobs:
         uses: pypa/cibuildwheel@v2.21
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
-          CIBW_SKIP: "*-musllinux_* *_i686 pp*"
+          CIBW_SKIP: "*-musllinux_* *_i686 *-win32 pp*"
           CIBW_ARCHS_MACOS: "auto"
           CIBW_ARCHS_LINUX: "x86_64"
-          # macOS: OpenMP via libomp
-          CIBW_BEFORE_ALL_MACOS: "brew install libomp || true"
+          # macOS: libomp로 OpenMP 유지. deployment target을 러너 macOS에 맞춰
+          # delocate의 wheel-tag/버전 충돌 회피.
+          CIBW_BEFORE_ALL_MACOS: "brew install libomp"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macdep }}"
           # 빌드 후 import 스모크 — numpy만 (sklearn은 테스트 컨테이너서 scipy 소스빌드 유발)
           CIBW_TEST_REQUIRES: "numpy"
           CIBW_TEST_COMMAND: >
