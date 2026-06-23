@@ -65,20 +65,23 @@ Pipelines, GridSearchCV).
 
 ## Benchmark
 
-5 real (OpenML) + 6 synthetic 2D datasets, held-out test, identical hyperparameters
-(`scripts/benchmark.py`). Mean across datasets:
+Optuna-tuned (each model gets the same trial budget), diverse OpenML binary datasets,
+held-out test ROC-AUC. Reproduce with:
 
-| Model | mean AUC rank | mean train time |
-|-------|--------------:|----------------:|
-| CatBoost | 1.73 | 0.041 s |
-| **OQBoost 2.0** | **2.27** | **0.196 s** |
-| LightGBM | 2.64 | 0.240 s |
-| XGBoost | 3.36 | 0.211 s |
+```bash
+python scripts/benchmark_optuna.py 30 15      # tunes all 4 models, caches best params
+```
 
-OQBoost beats XGBoost and LightGBM on **both** accuracy and speed. It is strongest on
-oblique/interaction structure — e.g. XOR where XGBoost collapses to AUC 0.53 while
-OQBoost reaches 0.92, and Spiral where it draws the smoothest boundary
-(`scripts/output/decision_boundary.png`).
+Best params are cached to `docs/optuna_params.json` and reused on re-runs (pass
+`--retune` to re-search), so the table below is fully reproducible.
+
+<p align="center">
+  <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test AUC across OpenML datasets" width="820">
+</p>
+
+OQBoost is strongest on oblique/interaction structure — e.g. 2D **XOR** where
+axis-aligned XGBoost collapses to AUC ≈ 0.53 while OQBoost reaches ≈ 0.92, and
+**Spiral** where it draws the smoothest boundary of all four boosters (figure above).
 
 ---
 
