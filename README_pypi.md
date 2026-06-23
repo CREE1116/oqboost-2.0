@@ -61,6 +61,7 @@ Both are drop-in scikit-learn estimators — usable in `Pipeline`, `GridSearchCV
 | `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust |
 | `alpha` | 0.9 | huber δ-quantile / quantile target |
 | `clip` | `False` | clamp regression output to training target range |
+| `monotone_constraints` | `None` | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict) |
 
 ## Why oblique
 

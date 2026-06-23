@@ -58,6 +58,8 @@ class _BaseOQBoost(BaseEstimator):
         loss: str = "squared",   # 회귀 손실: squared | huber | quantile (회귀기만)
         alpha: float = 0.9,      # huber=delta 분위 / quantile=목표 분위 (회귀기만)
         clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
+        monotone_constraints=None,  # 피처별 단조 제약 리스트 -1/0/+1 (길이=n_features)
+        warm_start: bool = False,   # True+n_estimators↑ 시 기존 트리에 추가 학습
         random_state: int = 42,
     ):
         self.n_estimators = n_estimators
@@ -74,6 +76,8 @@ class _BaseOQBoost(BaseEstimator):
         self.loss = loss
         self.alpha = alpha
         self.clip = clip
+        self.monotone_constraints = monotone_constraints
+        self.warm_start = warm_start
         self.random_state = random_state
 
     # ── pickle 직렬화: C++ 부스터를 bytes로 변환/복원 ────────────────────
@@ -106,6 +110,7 @@ class _BaseOQBoost(BaseEstimator):
     def _make_booster(self, objective: int):
         if self.loss not in _LOSS:
             raise ValueError(f"loss='{self.loss}' 미지원 ({' | '.join(_LOSS)})")
+        mono = self._monotone_list()
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
             max_depth=self.max_depth, max_bins=self.max_bins,
@@ -114,7 +119,29 @@ class _BaseOQBoost(BaseEstimator):
             colsample=self.colsample, seed=int(self.random_state),
             objective=objective, fast_dir=self.fast_dir,
             loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
+            monotone=mono,
         )
+
+    def _monotone_list(self):
+        """monotone_constraints → 길이 n_features의 int 리스트(없으면 빈 리스트).
+
+        리스트/배열(-1/0/+1) 또는 {feat_idx: dir} dict 허용. 길이 검증."""
+        mc = self.monotone_constraints
+        if mc is None:
+            return []
+        d = self.n_features_in_
+        if isinstance(mc, dict):
+            out = [0] * d
+            for k, v in mc.items():
+                out[int(k)] = int(v)
+            return out
+        out = [int(v) for v in mc]
+        if len(out) != d:
+            raise ValueError(
+                f"monotone_constraints 길이 {len(out)} ≠ n_features {d}")
+        if any(v not in (-1, 0, 1) for v in out):
+            raise ValueError("monotone_constraints 값은 -1/0/+1만 가능")
+        return out
 
 
 class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
@@ -122,9 +149,23 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
 
     def fit(self, X, y):
         X, y = _check_Xy(X, y)
+        Xc = np.ascontiguousarray(X, dtype=float)
+        # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분). threshold는 유지.
+        if (self.warm_start and getattr(self, "classes_", None) is not None
+                and X.shape[1] == getattr(self, "n_features_in_", None)):
+            if not self._multiclass:
+                extra = self.n_estimators - self._booster.n_trees()
+                if extra > 0:
+                    self._booster.fit_more(
+                        Xc, (y == self.classes_[1]).astype(float), extra)
+            else:
+                for cls, b in zip(self.classes_, self._boosters):
+                    extra = self.n_estimators - b.n_trees()
+                    if extra > 0:
+                        b.fit_more(Xc, (y == cls).astype(float), extra)
+            return self
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
-        Xc = np.ascontiguousarray(X, dtype=float)
         if len(self.classes_) < 2:
             raise ValueError("클래스가 2개 미만입니다.")
         elif len(self.classes_) == 2:
@@ -204,9 +245,18 @@ class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
 
     def fit(self, X, y):
         X, y = _check_Xy(X, y, y_numeric=True)
+        Xc = np.ascontiguousarray(X, dtype=float)
+        yf = y.astype(float)
+        # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분).
+        if (self.warm_start and getattr(self, "_booster", None) is not None
+                and X.shape[1] == getattr(self, "n_features_in_", None)):
+            extra = self.n_estimators - self._booster.n_trees()
+            if extra > 0:
+                self._booster.fit_more(Xc, yf, extra)
+            return self
         self.n_features_in_ = X.shape[1]
         self._booster = self._make_booster(objective=1)
-        self._booster.fit(np.ascontiguousarray(X, dtype=float), y.astype(float))
+        self._booster.fit(Xc, yf)
         return self
 
     def predict(self, X):

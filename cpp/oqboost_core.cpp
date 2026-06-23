@@ -3,11 +3,13 @@
 // 노드별 정렬 제거. 범주 서브시스템 없음(정수코드=연속). pybind11.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -147,6 +149,8 @@ struct Params {
   int loss = 0;
   double alpha = 0.9;  // huber: |residual| delta 분위 / quantile: 목표 분위
   int clip = 0;        // 1=예측을 train 타깃 [min,max]로 clamp (외삽 폭주 방지)
+  // 피처별 단조 제약: -1=감소, 0=무제약, +1=증가. 비면 제약 없음(fast path).
+  std::vector<int> monotone;
 };
 
 // ─── 단일 히스토그램 해상도 (전역 사전 binning과 2D 투영 threshold 스캔이
@@ -579,6 +583,17 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
     if (!lsq_separator(ws.cA, ws.cB, ws.lab, ws.Hs, coefA, coefB)) return s;
   }
 
+  // 단조 사분면 feasibility: 두 피처 모두 제약이고 방향이 충돌하면
+  // (sign(coefA)·mA ≠ sign(coefB)·mB) 이 사선쌍으론 공동 단조 불가 → 기각
+  // (eval_1d의 개별 축 분할이 폴백). 한쪽만 제약이면 방향 flip 자유로 항상 feasible.
+  if (!P.monotone.empty()) {
+    int mA = P.monotone[cA_.f], mB = P.monotone[cB_.f];
+    if (mA && mB && std::fabs(coefA) > 1e-12 && std::fabs(coefB) > 1e-12) {
+      int sA = coefA > 0 ? 1 : -1, sB = coefB > 0 ? 1 : -1;
+      if (sA * mA != sB * mB) return s;  // gain=0 → 폴백
+    }
+  }
+
   ws.proj.resize(nloc);
   if (!has_nan) {
 // NaN 없으면 벡터화 힌트 (MSVC /openmp는 omp simd 미지원 → GCC/Clang만)
@@ -624,16 +639,20 @@ static Split eval_2d(const std::vector<FCache>& C,
   for (int a = 0; a < nf; a++)
     for (int b = a + 1; b < nf; b++) pr.emplace_back(a, b);
   int np = (int)pr.size();
+  int nloc = (int)gn.size();
   std::vector<Split> res(np);
 
   int max_threads = 1;
 #ifdef _OPENMP
   max_threads = omp_get_max_threads();
 #endif
-  // 스레드별 개별 Workspace 미리 할당하여 thread_local 병목 타파
-  std::vector<Workspace> wss(max_threads);
+  // 작업량(쌍수×표본수)이 작으면 fork-join 오버헤드 > 이득 → serial 폴백.
+  // 깊은 노드(소표본)·작은 데이터서 스레드 생성 비용을 제거(small-data 회귀 방지).
+  bool par = max_threads > 1 && (long)np * nloc > 30000;
+  // 스레드별 개별 Workspace (thread_local 병목 회피). serial이면 1개만 할당.
+  std::vector<Workspace> wss(par ? max_threads : 1);
 
-#pragma omp parallel for schedule(dynamic, 4)
+#pragma omp parallel for schedule(dynamic, 4) if (par)
   for (int p = 0; p < np; p++) {
     int tid = 0;
 #ifdef _OPENMP
@@ -657,7 +676,8 @@ static int build(std::vector<Node>& arena, const double* X, int d,
                  const std::vector<std::vector<double>>& centers,
                  const std::vector<bool>& has_nan, const std::vector<double>& g,
                  const std::vector<double>& h, std::vector<int> idx, int depth,
-                 const Params& P, std::mt19937& rng, std::vector<double>& imp) {
+                 const Params& P, std::mt19937& rng, std::vector<double>& imp,
+                 double lo, double hi) {
   double Gp = 0, Hp = 0;
   for (int i : idx) {
     Gp += g[i];
@@ -665,7 +685,8 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   }
   int ni = (int)arena.size();
   arena.push_back(Node());
-  arena[ni].weight = -Gp / (Hp + P.reg_lambda);
+  double w = -Gp / (Hp + P.reg_lambda);
+  arena[ni].weight = w < lo ? lo : (w > hi ? hi : w);  // 단조 경계로 clamp
   if (depth >= P.max_depth || (int)idx.size() < P.min_samples) return ni;
 
   auto feats = screen(X, d, idx, g, P.n_screen);
@@ -721,10 +742,39 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   arena[ni].bias = bs.bias;
   arena[ni].nan_direction = bs.nan_direction;
 
+  // 단조 경계 전파: 제약 피처가 분할에 관여하면 자식 출력 범위를 중점 m으로
+  // 분리 → "위쪽" 자식은 [m,hi], "아래쪽"은 [lo,m]. 깊은 서브트리까지 leaf clamp가
+  // 전역 단조를 보장(고정 타 피처 직선 위에선 사선분할도 단조 feature의 단일 threshold).
+  double lo_l = lo, hi_l = hi, lo_r = lo, hi_r = hi;
+  if (!P.monotone.empty()) {
+    bool constrained = false, up_is_right = false;
+    if (bs.type == 1) {
+      int mA = P.monotone[bs.fA];
+      if (mA) { constrained = true; up_is_right = (mA > 0); }  // x≥thr=right=high-fA
+    } else {
+      int mA = P.monotone[bs.fA], mB = P.monotone[bs.fB];
+      if (mA && std::fabs(bs.coefA) > 1e-12) {
+        constrained = true; up_is_right = ((bs.coefA > 0) == (mA > 0));
+      } else if (mB && std::fabs(bs.coefB) > 1e-12) {
+        constrained = true; up_is_right = ((bs.coefB > 0) == (mB > 0));
+      }
+    }
+    if (constrained) {
+      double GL = 0, HL = 0;
+      for (int i : li) { GL += g[i]; HL += h[i]; }
+      double wL = -GL / (HL + P.reg_lambda);
+      double wR = -(Gp - GL) / ((Hp - HL) + P.reg_lambda);
+      double m = 0.5 * (wL + wR);
+      m = m < lo ? lo : (m > hi ? hi : m);  // [lo,hi]로 clamp → 자식 범위 항상 유효
+      if (up_is_right) { hi_l = m; lo_r = m; }
+      else { lo_l = m; hi_r = m; }
+    }
+  }
+
   int L = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(li),
-                depth + 1, P, rng, imp);
+                depth + 1, P, rng, imp, lo_l, hi_l);
   int R = build(arena, X, d, binidx, centers, has_nan, g, h, std::move(ri),
-                depth + 1, P, rng, imp);
+                depth + 1, P, rng, imp, lo_r, hi_r);
   arena[ni].left = L;
   arena[ni].right = R;
   return ni;
@@ -791,7 +841,7 @@ class Booster {
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
-          int loss, double alpha, int clip) {
+          int loss, double alpha, int clip, std::vector<int> monotone) {
     P.n_estimators = n_estimators;
     P.learning_rate = learning_rate;
     P.max_depth = max_depth;
@@ -807,6 +857,7 @@ class Booster {
     P.loss = loss;
     P.alpha = alpha;
     P.clip = clip;
+    P.monotone = std::move(monotone);
   }
 
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
@@ -838,26 +889,60 @@ class Booster {
       std::nth_element(ys.begin(), ys.begin() + mid, ys.end());
       init_score = ys[mid];
     }
-    std::vector<double> raw(n, init_score), g(n), h(n), absr;
-    if (P.objective == 1 && P.loss == 1) absr.resize(n);  // huber delta 계산용
+    std::vector<double> raw(n, init_score);
     trees.clear();
     trees.reserve(P.n_estimators);
     importances_.assign(d, 0.0);
+    rng_.seed(P.seed);
+    boost_rounds(X, y, n, d, B, raw, P.n_estimators);
+  }
+
+  // warm-start: 기존 트리 위에 extra 라운드 추가. raw 상태는 저장된 트리로
+  // 재구성하므로 별도 상태 보존 불필요. init_score·importances·rng_ 이어서 사용.
+  void fit_more(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
+                py::array_t<double, py::array::c_style | py::array::forcecast> ya,
+                int extra) {
+    auto Xb = Xa.request();
+    auto yb = ya.request();
+    int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
+    const double* X = (const double*)Xb.ptr;
+    const double* y = (const double*)yb.ptr;
+    if (extra <= 0 || trees.empty()) return;
+    g_hist_bins = std::max(2, P.max_bins);
+    Bins B = precompute_bins(X, n, d, P.max_bins);
+    // 기존 트리로 raw 재구성 (predict_raw와 동일, clip 제외)
+    std::vector<double> raw(n, init_score);
+#pragma omp parallel for if (n > 2000)
+    for (int i = 0; i < n; i++) {
+      const double* x = X + (size_t)i * d;
+      for (auto& tr : trees) raw[i] += P.learning_rate * predict_one(tr, x);
+    }
+    if ((int)importances_.size() != d) importances_.assign(d, 0.0);
+    trees.reserve(trees.size() + extra);
+    boost_rounds(X, y, n, d, B, raw, extra);
+  }
+
+  int n_trees() const { return (int)trees.size(); }
+
+  // 부스팅 라운드 실행기 (fit / fit_more 공유). rng_·trees·importances_·raw 갱신.
+  void boost_rounds(const double* X, const double* y, int n, int d,
+                    const Bins& B, std::vector<double>& raw, int rounds) {
+    std::vector<double> g(n), h(n), absr;
+    if (P.objective == 1 && P.loss == 1) absr.resize(n);  // huber delta 계산용
     std::vector<int> all(n);
     std::iota(all.begin(), all.end(), 0);
-    std::mt19937 rng(P.seed);
     int n_sub = std::max(1, (int)(P.subsample * n));
 
-    for (int t = 0; t < P.n_estimators; t++) {
+    for (int t = 0; t < rounds; t++) {
       if (P.objective == 0) {
-#pragma omp parallel for
+#pragma omp parallel for if (n > 8000)
         for (int i = 0; i < n; i++) {
           double p = 1.0 / (1.0 + std::exp(-raw[i]));
           g[i] = p - y[i];
           h[i] = p * (1 - p);
         }
       } else if (P.loss == 0) {  // squared (L2)
-#pragma omp parallel for
+#pragma omp parallel for if (n > 8000)
         for (int i = 0; i < n; i++) {
           g[i] = raw[i] - y[i];
           h[i] = 1.0;
@@ -868,14 +953,14 @@ class Booster {
         std::nth_element(absr.begin(), absr.begin() + k, absr.end());
         double delta = absr[k];
         if (delta <= 0) delta = 1e-12;
-#pragma omp parallel for
+#pragma omp parallel for if (n > 8000)
         for (int i = 0; i < n; i++) {
           double r = raw[i] - y[i];
           g[i] = r > delta ? delta : (r < -delta ? -delta : r);
           h[i] = 1.0;
         }
       } else {  // quantile (pinball), 목표 분위 alpha
-#pragma omp parallel for
+#pragma omp parallel for if (n > 8000)
         for (int i = 0; i < n; i++) {
           double r = y[i] - raw[i];
           g[i] = r > 0 ? -P.alpha : (1.0 - P.alpha);
@@ -885,14 +970,15 @@ class Booster {
 
       std::vector<int> rows;
       if (P.subsample < 1.0) {
-        std::shuffle(all.begin(), all.end(), rng);
+        std::shuffle(all.begin(), all.end(), rng_);
         rows.assign(all.begin(), all.begin() + n_sub);
       } else
         rows = all;
       std::vector<Node> arena;
       arena.reserve(256);
-      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng,
-            importances_);
+      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng_,
+            importances_, -std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::infinity());
 
       // quantile: gradient는 부호뿐(±α)이라 -G/H leaf 값이 무의미 → 트리 구조는
       // gradient로 만들되 leaf 값을 멤버 residual의 alpha-분위로 line-search.
@@ -905,12 +991,14 @@ class Booster {
             arena[li].weight = quantile_inplace(res[li], P.alpha);
       }
 
-#pragma omp parallel for
+#pragma omp parallel for if (n > 2000)
       for (int i = 0; i < n; i++)
         raw[i] += P.learning_rate * predict_one(arena, X + (size_t)i * d);
       trees.push_back(std::move(arena));
     }
   }
+
+  std::mt19937 rng_;  // fit/fit_more 연속 사용 (warm-start 시 subsample 시퀀스 이어짐)
 
   py::array_t<double> predict_raw(
       py::array_t<double, py::array::c_style | py::array::forcecast> Xa) {
@@ -920,7 +1008,7 @@ class Booster {
     auto out = py::array_t<double>(n);
     double* op = (double*)out.request().ptr;
 
-#pragma omp parallel for
+#pragma omp parallel for if (n > 2000)
     for (int i = 0; i < n; i++) {
       double r = init_score;
       const double* x = X + (size_t)i * d;
@@ -940,7 +1028,7 @@ class Booster {
     auto out = py::array_t<double>({(py::ssize_t)n, (py::ssize_t)2});
     double* op = (double*)out.request().ptr;
 
-#pragma omp parallel for
+#pragma omp parallel for if (n > 2000)
     for (int i = 0; i < n; i++) {
       double r = init_score;
       const double* x = X + (size_t)i * d;
@@ -1019,15 +1107,18 @@ class Booster {
 PYBIND11_MODULE(oqboost_core, m) {
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
-                    unsigned, int, int, int, double, int>(),
+                    unsigned, int, int, int, double, int, std::vector<int>>(),
            py::arg("n_estimators") = 60, py::arg("learning_rate") = 0.12,
            py::arg("max_depth") = 4, py::arg("max_bins") = 64,
            py::arg("reg_lambda") = 1.0, py::arg("min_samples") = 10,
            py::arg("n_screen") = -1, py::arg("subsample") = 1.0,
            py::arg("colsample") = 1.0, py::arg("seed") = 42,
            py::arg("objective") = 0, py::arg("fast_dir") = 0,
-           py::arg("loss") = 0, py::arg("alpha") = 0.9, py::arg("clip") = 0)
+           py::arg("loss") = 0, py::arg("alpha") = 0.9, py::arg("clip") = 0,
+           py::arg("monotone") = std::vector<int>{})
       .def("fit", &Booster::fit)
+      .def("fit_more", &Booster::fit_more)
+      .def("n_trees", &Booster::n_trees)
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)
       .def("feature_importances", &Booster::feature_importances)

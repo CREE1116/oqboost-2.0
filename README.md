@@ -136,6 +136,8 @@ See [`docs/MODEL.md`](docs/MODEL.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
 | `loss` | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust (init = median) |
 | `alpha` | 0.9 | huber: residual quantile for the δ transition · quantile: target quantile |
 | `clip` | `False` | clamp regression output to the training target range (no extrapolation blow-up) |
+| `monotone_constraints` | `None` | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
+| `warm_start` | `False` | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training) |
 
 ---
 
