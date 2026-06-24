@@ -1,7 +1,7 @@
 """
 decision_boundary.py — 결정경계 비교 (OQBoost / XGBoost / LightGBM / CatBoost)
 다양한 합성 2D 데이터셋에서 각 모델의 P(y=1) 경계를 나란히 그린다.
-출력: docs/decision_boundary.png
+출력: docs/images/decision_boundary.png
 """
 import sys
 from pathlib import Path
@@ -94,7 +94,7 @@ def main():
     fig.suptitle("Decision Boundaries — OQBoost vs XGBoost / LightGBM / CatBoost",
                  fontsize=13, fontweight="bold", y=1.002)
     plt.tight_layout()
-    out = Path(__file__).parent.parent / "docs"; out.mkdir(exist_ok=True)
+    out = Path(__file__).parent.parent / "docs" / "images"; out.mkdir(parents=True, exist_ok=True)
     path = out / "decision_boundary.png"
     fig.savefig(path, dpi=130, bbox_inches="tight"); plt.close(fig)
     print(f"  → {path}")

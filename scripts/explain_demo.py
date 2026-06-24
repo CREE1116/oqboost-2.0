@@ -1,4 +1,4 @@
-"""explain_demo.py — OQBoost 네이티브 설명 시각화 데모 → docs/explainability.png
+"""explain_demo.py — OQBoost 네이티브 설명 시각화 데모 → docs/images/explainability.png
 
 oqboost.plot의 4개 패널(중요도 / 사선쌍 interaction / 단일표본 워터폴 / beeswarm 요약)을
 알려진 구조의 합성 데이터에 그려, README용 figure를 만든다.
@@ -17,7 +17,7 @@ import numpy as np
 from oqboost import OQBoostRegressor
 import oqboost.plot as oqp
 
-OUT = Path(__file__).parent.parent / "docs" / "explainability.png"
+OUT = Path(__file__).parent.parent / "docs" / "images" / "explainability.png"
 
 # 알려진 구조: age×income 곱셈 상호작용 + capital(+)·debt(-) 선형 + hours 약함 + noise.
 rng = np.random.RandomState(1)

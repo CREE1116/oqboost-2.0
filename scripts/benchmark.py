@@ -11,7 +11,7 @@ train에 적합하고 held-out test에서 비교한다. 튜닝은 하지 않는�
   - 공통: train time, inference time
 
 사용: python optimize.py ... ; python benchmark.py [--tasks binary,multiclass,regression]
-출력: docs/benchmark.csv (long), docs/benchmark_optuna.png
+출력: docs/benchmark.csv (long), docs/images/benchmark_optuna.png
 """
 import sys, json, time
 from pathlib import Path
@@ -106,7 +106,7 @@ def main():
     out = PARAMS_JSON.parent
     df.to_csv(out / "benchmark.csv", index=False)
     _report(df)
-    _plot(df, out / "benchmark_optuna.png")
+    (out / "images").mkdir(parents=True, exist_ok=True); _plot(df, out / "images" / "benchmark_optuna.png")
     print(f"\n  → {out}/benchmark.csv, benchmark_optuna.png")
 
 

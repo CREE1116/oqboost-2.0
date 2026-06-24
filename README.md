@@ -18,7 +18,7 @@ the gradient (no random projections or numerical search), with a C++ backend.
 [![Build](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml/badge.svg)](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml)
 
 <p align="center">
-  <img src="docs/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
+  <img src="docs/images/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
 </p>
 
 Decision boundaries on synthetic 2D problems. Because splits are oblique, OQBoost
@@ -30,7 +30,7 @@ smooth curved class boundaries of a 3-arm spiral where axis-aligned boosters
 staircase:
 
 <p align="center">
-  <img src="docs/decision_boundary_multiclass.png" alt="OQBoost multiclass decision regions (3 classes) vs XGBoost / LightGBM / CatBoost" width="820">
+  <img src="docs/images/decision_boundary_multiclass.png" alt="OQBoost multiclass decision regions (3 classes) vs XGBoost / LightGBM / CatBoost" width="820">
 </p>
 
 ---
@@ -97,7 +97,7 @@ ROC-AUC (OvR macro for multiclass) plus accuracy / balanced accuracy (decision t
 tuned on validation, uniformly across models); regression uses R² / RMSE / MAE.
 
 <p align="center">
-  <img src="docs/benchmark_optuna.png" alt="Optuna-tuned test metrics across binary / multiclass / regression OpenML suites" width="820">
+  <img src="docs/images/benchmark_optuna.png" alt="Optuna-tuned test metrics across binary / multiclass / regression OpenML suites" width="820">
 </p>
 
 Across 32 OpenML datasets (each model independently Optuna-tuned). **Mean rank** of
@@ -126,7 +126,7 @@ similarity across the tuned suites — **label agreement** for classification, *
 correlation of predictions** for regression (`python scripts/model_similarity.py --full`):
 
 <p align="center">
-  <img src="docs/model_similarity.png" alt="Pairwise prediction similarity heatmaps" width="820">
+  <img src="docs/images/model_similarity.png" alt="Pairwise prediction similarity heatmaps" width="820">
 </p>
 
 | Binary (26)  | OQBoost | XGBoost | LightGBM | CatBoost |
@@ -210,7 +210,7 @@ booster (importance / interactions / explanation); omitting it aggregates over
 classes (importances) or uses the predicted / most-frequent class (explanations).
 
 <p align="center">
-  <img src="docs/explainability.png" alt="OQBoost native explanation plots" width="820">
+  <img src="docs/images/explainability.png" alt="OQBoost native explanation plots" width="820">
 </p>
 
 On data with a true `age·income` interaction plus independent `capital`/`debt`
