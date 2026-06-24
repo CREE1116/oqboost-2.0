@@ -12,6 +12,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.metrics import balanced_accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.multiclass import check_classification_targets
 
 from . import oqboost_core as _core
 
@@ -25,18 +26,34 @@ _THRESHOLD_METRICS = {
 # 회귀 손실 → C++ loss 코드. squared=L2, huber=robust, quantile=pinball.
 _LOSS = {"squared": 0, "huber": 1, "quantile": 2}
 
-# NaN 허용 (C++ 백엔드가 결측치 native 처리). sklearn 버전별 인자명 호환.
+# NaN allowed (the C++ backend handles missing values natively); arg name varies
+# across sklearn versions.
 _FINITE_KW = ("ensure_all_finite"
               if "ensure_all_finite" in inspect.signature(check_array).parameters
               else "force_all_finite")
 
+# validate_data (sklearn >=1.6) sets n_features_in_ / feature_names_in_ and checks
+# feature-count consistency between fit and predict; fall back to the method form.
+try:
+    from sklearn.utils.validation import validate_data as _validate_data
 
-def _check_X(X):
-    return check_array(X, dtype=float, **{_FINITE_KW: "allow-nan"})
+    def _vd(est, X, y=None, reset=True, **kw):
+        if y is None:
+            return _validate_data(est, X, reset=reset, **kw)
+        return _validate_data(est, X, y, reset=reset, **kw)
+except ImportError:  # sklearn 1.3–1.5
+    def _vd(est, X, y=None, reset=True, **kw):
+        if y is None:
+            return est._validate_data(X, reset=reset, **kw)
+        return est._validate_data(X, y, reset=reset, **kw)
 
 
-def _check_Xy(X, y, **kw):
-    return check_X_y(X, y, dtype=float, **{_FINITE_KW: "allow-nan"}, **kw)
+def _check_X(est, X):
+    return _vd(est, X, reset=False, dtype=float, **{_FINITE_KW: "allow-nan"})
+
+
+def _check_Xy(est, X, y, reset=True, **kw):
+    return _vd(est, X, y, reset=reset, dtype=float, **{_FINITE_KW: "allow-nan"}, **kw)
 
 
 class _BaseOQBoost(BaseEstimator):
@@ -90,7 +107,16 @@ class _BaseOQBoost(BaseEstimator):
         self.tol = tol
         self.random_state = random_state
 
-    # ── pickle 직렬화: C++ 부스터를 bytes로 변환/복원 ────────────────────
+    # NaN is handled natively by the backend; tell sklearn it is intentional.
+    def __sklearn_tags__(self):
+        tags = super().__sklearn_tags__()
+        tags.input_tags.allow_nan = True
+        return tags
+
+    def _more_tags(self):  # sklearn < 1.6
+        return {"allow_nan": True}
+
+    # ── pickle serialization: C++ booster <-> bytes ─────────────────────────
     def __getstate__(self):
         state = self.__dict__.copy()
         booster = state.pop("_booster", None)
@@ -142,7 +168,7 @@ class _BaseOQBoost(BaseEstimator):
             raise NotImplementedError(
                 "explain()은 max_lineage=0(기본 2D)만 지원 — LOB의 합성 dense 방향엔 "
                 "경로-가산 귀속이 정의되지 않음.")
-        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
         return self._booster.explain(Xc)
 
     def _make_booster(self, objective: int):
@@ -210,6 +236,8 @@ class _BaseOQBoost(BaseEstimator):
             raise ValueError(f"sample_weight length {sw.shape[0]} != n_samples {n}")
         if np.any(sw < 0):
             raise ValueError("sample_weight must be non-negative")
+        if sw.shape[0] and sw.sum() == 0:
+            raise ValueError("all sample_weight values are zero")
         return sw
 
     def _es_split(self, y, stratify):
@@ -234,16 +262,19 @@ class _BaseOQBoost(BaseEstimator):
         return b.best_iteration()
 
 
-class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
+class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
     """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
 
     def fit(self, X, y, sample_weight=None):
-        X, y = _check_Xy(X, y)
+        if y is None:
+            raise ValueError("requires y to be passed, but the target y is None")
+        warm = self.warm_start and getattr(self, "classes_", None) is not None
+        X, y = _check_Xy(self, X, y, reset=not warm)
+        check_classification_targets(y)  # reject continuous regression targets
         Xc = np.ascontiguousarray(X, dtype=float)
         sw = self._sw(sample_weight, len(y))
-        # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분). threshold는 유지.
-        if (self.warm_start and getattr(self, "classes_", None) is not None
-                and X.shape[1] == getattr(self, "n_features_in_", None)):
+        # warm-start: add trees on the same data (n_estimators delta); keep threshold.
+        if warm and X.shape[1] == self.n_features_in_:
             if not self._multiclass:
                 extra = self.n_estimators - self._booster.n_trees()
                 if extra > 0:
@@ -255,10 +286,12 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
                     if extra > 0:
                         b.fit_more(Xc, (y == cls).astype(float), extra, sw)
             return self
+        if X.shape[0] < 2:
+            raise ValueError(f"need at least 2 samples to fit, got n_samples={X.shape[0]}")
         self.classes_ = np.unique(y)
-        self.n_features_in_ = X.shape[1]
+        # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
         if len(self.classes_) < 2:
-            raise ValueError("클래스가 2개 미만입니다.")
+            raise ValueError("y must contain at least 2 classes")
         tr, va = self._es_split(y, stratify=True)  # early stopping split (or None)
         if len(self.classes_) == 2:
             self._multiclass = False
@@ -309,7 +342,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
 
     def predict_proba(self, X):
         check_is_fitted(self, "_multiclass")
-        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
         if not self._multiclass:
             return self._booster.predict_proba(Xc)
         # OvR: 각 부스터의 P(class k) → 행 정규화
@@ -363,7 +396,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
         if int(self.max_lineage) > 0:
             raise NotImplementedError(
                 "explain()은 max_lineage=0(기본 2D)만 지원 (LOB 합성 방향 미지원).")
-        Xc = np.ascontiguousarray(_check_X(X), dtype=float)
+        Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
         if not self._multiclass:
             return self._booster.explain(Xc)
         # OvR: 클래스별 부스터 explain → (n, n_classes, n_features)
@@ -371,22 +404,24 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
         return np.stack(per, axis=1)
 
 
-class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
+class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
     """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
 
     def fit(self, X, y, sample_weight=None):
-        X, y = _check_Xy(X, y, y_numeric=True)
+        if y is None:
+            raise ValueError("requires y to be passed, but the target y is None")
+        warm = self.warm_start and getattr(self, "_booster", None) is not None
+        X, y = _check_Xy(self, X, y, reset=not warm, y_numeric=True)
         Xc = np.ascontiguousarray(X, dtype=float)
         yf = y.astype(float)
         sw = self._sw(sample_weight, len(y))
-        # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분).
-        if (self.warm_start and getattr(self, "_booster", None) is not None
-                and X.shape[1] == getattr(self, "n_features_in_", None)):
+        # warm-start: add trees on the same data (n_estimators delta).
+        if warm and X.shape[1] == self.n_features_in_:
             extra = self.n_estimators - self._booster.n_trees()
             if extra > 0:
                 self._booster.fit_more(Xc, yf, extra, sw)
             return self
-        self.n_features_in_ = X.shape[1]
+        # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
         self._booster = self._make_booster(objective=1)
         tr, va = self._es_split(yf, stratify=False)
         self.best_iteration_ = self._fit_booster(self._booster, Xc, yf, sw, tr, va)
@@ -394,5 +429,5 @@ class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
 
     def predict(self, X):
         check_is_fitted(self, "_booster")
-        X = _check_X(X)
+        X = _check_X(self, X)
         return self._booster.predict_raw(np.ascontiguousarray(X, dtype=float))
