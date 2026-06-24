@@ -60,8 +60,11 @@ class _BaseOQBoost(BaseEstimator):
         clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
         monotone_constraints=None,  # 피처별 단조 제약 리스트 -1/0/+1 (길이=n_features)
         categorical_features=None,  # 범주형 피처 인덱스/마스크 → 무손실 비닝
-        max_lineage: int = 0,       # LOB: >0이면 조상 방향 상속(계층 합성). 0=기존 2D
-        warm_start: bool = False,   # True+n_estimators↑ 시 기존 트리에 추가 학습
+        max_lineage: int = 0,       # LOB: >0 inherits ancestor directions (composed). 0=classic 2D
+        warm_start: bool = False,   # True + higher n_estimators -> add trees to the existing model
+        n_iter_no_change=None,      # early stopping: stop after this many rounds w/o val improvement (None=off)
+        validation_fraction: float = 0.1,  # held-out fraction for early-stopping monitoring
+        tol: float = 1e-4,          # min val-deviance improvement to count as progress
         random_state: int = 42,
     ):
         self.n_estimators = n_estimators
@@ -82,6 +85,9 @@ class _BaseOQBoost(BaseEstimator):
         self.categorical_features = categorical_features
         self.max_lineage = max_lineage
         self.warm_start = warm_start
+        self.n_iter_no_change = n_iter_no_change
+        self.validation_fraction = validation_fraction
+        self.tol = tol
         self.random_state = random_state
 
     # ── pickle 직렬화: C++ 부스터를 bytes로 변환/복원 ────────────────────
@@ -206,6 +212,27 @@ class _BaseOQBoost(BaseEstimator):
             raise ValueError("sample_weight must be non-negative")
         return sw
 
+    def _es_split(self, y, stratify):
+        """(tr_idx, va_idx) for early stopping; (None, None) if off or warm-start."""
+        if self.n_iter_no_change is None or self.warm_start:
+            return None, None
+        tr, va = train_test_split(
+            np.arange(len(y)), test_size=self.validation_fraction,
+            random_state=int(self.random_state),
+            stratify=(y if stratify else None))
+        return tr, va
+
+    def _fit_booster(self, b, Xc, yt, sw, tr, va):
+        """booster.fit with or without early stopping. Returns best_iteration (-1=none)."""
+        if va is None:
+            b.fit(Xc, yt, sw)
+            return -1
+        swt = sw[tr] if sw.size else sw
+        b.fit(np.ascontiguousarray(Xc[tr]), yt[tr], swt,
+              X_val=np.ascontiguousarray(Xc[va]), y_val=yt[va],
+              es_patience=int(self.n_iter_no_change), es_tol=float(self.tol))
+        return b.best_iteration()
+
 
 class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
     """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
@@ -232,21 +259,24 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
         self.n_features_in_ = X.shape[1]
         if len(self.classes_) < 2:
             raise ValueError("클래스가 2개 미만입니다.")
-        elif len(self.classes_) == 2:
+        tr, va = self._es_split(y, stratify=True)  # early stopping split (or None)
+        if len(self.classes_) == 2:
             self._multiclass = False
             ybin = (y == self.classes_[1]).astype(float)
             self.decision_threshold_ = self._fit_threshold(Xc, ybin)
             self._booster = self._make_booster(objective=0)
-            self._booster.fit(Xc, ybin, sw)
+            self.best_iteration_ = self._fit_booster(self._booster, Xc, ybin, sw, tr, va)
         else:
-            # one-vs-rest: 클래스마다 이진 부스터
+            # one-vs-rest: one binary booster per class
             self._multiclass = True
-            self.decision_threshold_ = 0.5  # 다중클래스는 argmax, cut 미사용
+            self.decision_threshold_ = 0.5  # multiclass uses argmax, no cut
             self._boosters = []
+            bi = []
             for cls in self.classes_:
                 b = self._make_booster(objective=0)
-                b.fit(Xc, (y == cls).astype(float), sw)
+                bi.append(self._fit_booster(b, Xc, (y == cls).astype(float), sw, tr, va))
                 self._boosters.append(b)
+            self.best_iteration_ = bi if va is not None else -1
         return self
 
     def _fit_threshold(self, Xc, ybin):
@@ -358,7 +388,8 @@ class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
             return self
         self.n_features_in_ = X.shape[1]
         self._booster = self._make_booster(objective=1)
-        self._booster.fit(Xc, yf, sw)
+        tr, va = self._es_split(yf, stratify=False)
+        self.best_iteration_ = self._fit_booster(self._booster, Xc, yf, sw, tr, va)
         return self
 
     def predict(self, X):

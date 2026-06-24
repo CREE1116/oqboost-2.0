@@ -924,6 +924,12 @@ class Booster {
   std::vector<double> inter_;        // d×d 상삼각: Σ gain·|a|·|b| (사선쌍 interaction)
   std::vector<std::vector<double>> dirs_;  // LOB dense 방향 테이블 (node.dir_id 참조)
   std::vector<double> w_;            // sample_weight (empty = unweighted)
+  // early stopping: monitor a validation set, stop after `es_patience_` rounds
+  // without > es_tol_ improvement in the deviance, truncate to the best round.
+  std::vector<double> xval_, yval_;
+  int nval_ = 0, es_patience_ = 0;
+  double es_tol_ = 1e-4;
+  int best_iteration_ = -1;
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
@@ -962,15 +968,39 @@ class Booster {
     }
   }
 
+  // validation set for early stopping (empty = disabled).
+  void set_eval(py::array_t<double, py::array::c_style | py::array::forcecast> Xva,
+                py::array_t<double, py::array::c_style | py::array::forcecast> yva,
+                int patience, double tol) {
+    auto xb = Xva.request();
+    auto yb = yva.request();
+    nval_ = (int)yb.size;
+    if (nval_ > 0) {
+      const double* xp = (const double*)xb.ptr;
+      const double* yp = (const double*)yb.ptr;
+      xval_.assign(xp, xp + xb.size);
+      yval_.assign(yp, yp + nval_);
+      es_patience_ = patience;
+      es_tol_ = tol;
+    } else {
+      xval_.clear(); yval_.clear(); es_patience_ = 0;
+    }
+  }
+
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
            py::array_t<double, py::array::c_style | py::array::forcecast> ya,
-           py::array_t<double, py::array::c_style | py::array::forcecast> wa) {
+           py::array_t<double, py::array::c_style | py::array::forcecast> wa,
+           py::array_t<double, py::array::c_style | py::array::forcecast> Xva,
+           py::array_t<double, py::array::c_style | py::array::forcecast> yva,
+           int es_patience, double es_tol) {
     auto Xb = Xa.request();
     auto yb = ya.request();
     int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
     const double* X = (const double*)Xb.ptr;
     const double* y = (const double*)yb.ptr;
     set_weights(wa, n);
+    set_eval(Xva, yva, es_patience, es_tol);
+    best_iteration_ = -1;
     // 단일 소스로 통일: max_bins가 전역 사전 binning과 2D threshold 스캔
     // 해상도를 동시에 결정. fit() 호출당 한 번만 쓰고 이후 읽기 전용.
     g_hist_bins = std::max(2, P.max_bins);
@@ -1019,6 +1049,7 @@ class Booster {
     const double* y = (const double*)yb.ptr;
     if (extra <= 0 || trees.empty()) return;
     set_weights(wa, n);
+    es_patience_ = 0; nval_ = 0;  // no early stopping on warm-start continuation
     g_hist_bins = std::max(2, P.max_bins);
     Bins B = precompute_bins(X, n, d, P.max_bins, P.categorical);
     // 기존 트리로 raw 재구성 (predict_raw와 동일, clip 제외)
@@ -1035,9 +1066,35 @@ class Booster {
 
   int n_trees() const { return (int)trees.size(); }
 
-  // 부스팅 라운드 실행기 (fit / fit_more 공유). rng_·trees·importances_·raw 갱신.
+  // deviance from incrementally-maintained validation raw scores (lower better):
+  // logloss for classification, MSE for regression.
+  double deviance_from(const std::vector<double>& raw_val) {
+    double s = 0;
+    for (int j = 0; j < nval_; j++) {
+      if (P.objective == 0) {
+        double p = 1.0 / (1.0 + std::exp(-raw_val[j]));
+        p = std::min(std::max(p, 1e-12), 1 - 1e-12);
+        s += -(yval_[j] * std::log(p) + (1 - yval_[j]) * std::log(1 - p));
+      } else {
+        double e = raw_val[j] - yval_[j];
+        s += e * e;
+      }
+    }
+    return s / std::max(1, nval_);
+  }
+
+  // boosting round runner (shared by fit / fit_more). Updates rng_, trees,
+  // importances_, raw; honours early stopping when a validation set is set.
   void boost_rounds(const double* X, const double* y, int n, int d,
                     const Bins& B, std::vector<double>& raw, int rounds) {
+    bool es = es_patience_ > 0 && nval_ > 0;
+    double best_dev = std::numeric_limits<double>::infinity();
+    int best_round = -1, since_best = 0;
+    std::vector<double> raw_val(es ? nval_ : 0, init_score);
+    if (es)  // account for trees already present (warm-start)
+      for (int j = 0; j < nval_; j++)
+        for (auto& tr : trees)
+          raw_val[j] += P.learning_rate * predict_one(tr, xval_.data() + (size_t)j * d, dirs_);
     std::vector<double> g(n), h(n), absr;
     if (P.objective == 1 && P.loss == 1) absr.resize(n);  // huber delta 계산용
     std::vector<int> all(n);
@@ -1116,6 +1173,24 @@ class Booster {
       for (int i = 0; i < n; i++)
         raw[i] += P.learning_rate * predict_one(arena, X + (size_t)i * d, dirs_);
       trees.push_back(std::move(arena));
+
+      if (es) {  // early stopping: update val scores, track best, stop on patience
+        const std::vector<Node>& tr = trees.back();
+        for (int j = 0; j < nval_; j++)
+          raw_val[j] += P.learning_rate *
+                        predict_one(tr, xval_.data() + (size_t)j * d, dirs_);
+        double dev = deviance_from(raw_val);
+        if (dev < best_dev - es_tol_) {
+          best_dev = dev; best_round = (int)trees.size() - 1; since_best = 0;
+        } else if (++since_best >= es_patience_) {
+          break;
+        }
+      }
+    }
+    if (es) {  // keep only up to the best round
+      if (best_round >= 0 && best_round + 1 < (int)trees.size())
+        trees.resize(best_round + 1);
+      best_iteration_ = (int)trees.size() - 1;
     }
   }
 
@@ -1464,10 +1539,14 @@ PYBIND11_MODULE(oqboost_core, m) {
            py::arg("categorical") = std::vector<int>{},
            py::arg("max_lineage") = 0)
       .def("fit", &Booster::fit, py::arg("X"), py::arg("y"),
-           py::arg("sample_weight") = py::array_t<double>(0))
+           py::arg("sample_weight") = py::array_t<double>(0),
+           py::arg("X_val") = py::array_t<double>(0),
+           py::arg("y_val") = py::array_t<double>(0),
+           py::arg("es_patience") = 0, py::arg("es_tol") = 1e-4)
       .def("fit_more", &Booster::fit_more, py::arg("X"), py::arg("y"),
            py::arg("extra"), py::arg("sample_weight") = py::array_t<double>(0))
       .def("n_trees", &Booster::n_trees)
+      .def("best_iteration", [](const Booster& b) { return b.best_iteration_; })
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)
       .def("feature_importances", &Booster::feature_importances)
