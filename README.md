@@ -243,7 +243,7 @@ joblib.dump(clf, "clf.joblib")
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
 | `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (one bin per level, ignoring `max_bins`)                          |
-| `max_lineage`          | 0           | **LOB** (experimental): if `>0`, a node inherits ancestor split directions so `(z, x)` / `(z, z)` pairs enter the 2D search — oblique directions compose hierarchically. 0 = classic 2D. Pair with `n_screen` to bound the candidate pool. |
+| `max_lineage`          | 0           | **LOB** (experimental): `>0` approximates high-order oblique interactions with only 2×2 solves — a node inherits ancestor directions so `(z, x)` / `(z, z)` pairs enter the 2D search and directions compose hierarchically (never a full d-dim solve). 0 = classic 2D. Pair with `n_screen` to bound the candidate pool. |
 
 ---
 

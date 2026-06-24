@@ -113,7 +113,7 @@ oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict)                |
 | `warm_start`           | `False`     | add trees on top of the existing model when `n_estimators` grows (incremental)     |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (no level merging)  |
-| `max_lineage`          | 0           | LOB (experimental): `>0` lets nodes inherit ancestor directions (`(z,x)`/`(z,z)` pairs) — composes oblique directions across depth. 0 = classic 2D |
+| `max_lineage`          | 0           | LOB (experimental): `>0` approximates high-order oblique interactions with only 2×2 solves — nodes inherit ancestor directions (`(z,x)`/`(z,z)` pairs) and compose them across depth. 0 = classic 2D |
 
 ## Why oblique
 
