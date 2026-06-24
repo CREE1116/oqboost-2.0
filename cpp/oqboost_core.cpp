@@ -1,6 +1,7 @@
-// oqboost_core.cpp — OQBoost 2.0 core (histogram-binned 2D-oblique GBDT)
-// 2D-oblique Newton-boosted GBDT. 전역 사전 binning(히스토그램 트릭)으로
-// 노드별 정렬 제거. 범주 서브시스템 없음(정수코드=연속). pybind11.
+// oqboost_core.cpp — OQBoost core (histogram-binned 2D-oblique GBDT)
+// 2D-oblique Newton-boosted GBDT. 전역 사전 binning(히스토그램 트릭)으로 노드별
+// 정렬 제거. 범주는 기본 연속(정수코드) + 선택적 무손실 비닝(categorical_features).
+// LOB(max_lineage>0)는 조상 방향 상속해 고차 상호작용 근사. pybind11.
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>

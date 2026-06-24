@@ -13,15 +13,14 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_auc_score
+from matplotlib.colors import ListedColormap
+from sklearn.metrics import roc_auc_score, accuracy_score
 
 from datasets import SYNTH_2D
 from models import make_models
 
 STEP = 0.02
 CMAP = "RdBu_r"
-from matplotlib.colors import ListedColormap
-from sklearn.metrics import accuracy_score
 MC_CMAP = ListedColormap(["#E05A2B", "#2980B9", "#27AE60"])  # 3-class
 
 
