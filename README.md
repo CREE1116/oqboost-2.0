@@ -160,7 +160,7 @@ in an ensemble.
 4. Higher-order interactions come from **depth + boosting**, not wider splits — 2D is
    the bias/variance and search-cost sweet spot.
 
-See [`docs/MODEL.md`](docs/MODEL.md) and [`docs/DESIGN.md`](docs/DESIGN.md).
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the feature roadmap and status.
 
 ---
 

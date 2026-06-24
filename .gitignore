@@ -10,3 +10,4 @@ catboost_info/
 .DS_Store
 .env
 docs/benchmark*.csv
+scripts/publish.sh
