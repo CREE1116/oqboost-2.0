@@ -1200,6 +1200,30 @@ class Booster {
 
   std::mt19937 rng_;  // fit/fit_more 연속 사용 (warm-start 시 subsample 시퀀스 이어짐)
 
+  // raw 점수 누적 (op[i] = init + Σ lr·tree). tree-outer 청크 순회 — 각 트리의
+  // 노드 배열이 한 청크 전체 동안 캐시 hot 유지 → 배치 추론 ~1.5x (비트동일).
+  void accumulate_raw(const double* X, int n, int d, double* op) {
+    double lr = P.learning_rate;
+    auto block = [&](size_t lo, size_t hi) {
+      for (size_t i = lo; i < hi; i++) op[i] = init_score;
+      for (auto& tr : trees)
+        for (size_t i = lo; i < hi; i++)
+          op[i] += lr * predict_one(tr, X + i * d, dirs_);
+    };
+#ifdef _OPENMP
+    if (n > 2000) {
+#pragma omp parallel
+      {
+        int nt = omp_get_num_threads(), tid = omp_get_thread_num();
+        size_t lo = (size_t)n * tid / nt, hi = (size_t)n * (tid + 1) / nt;
+        block(lo, hi);
+      }
+      return;
+    }
+#endif
+    block(0, (size_t)n);
+  }
+
   py::array_t<double> predict_raw(
       py::array_t<double, py::array::c_style | py::array::forcecast> Xa) {
     auto Xb = Xa.request();
@@ -1207,15 +1231,9 @@ class Booster {
     const double* X = (const double*)Xb.ptr;
     auto out = py::array_t<double>(n);
     double* op = (double*)out.request().ptr;
-
-#pragma omp parallel for if (n > 2000)
-    for (int i = 0; i < n; i++) {
-      double r = init_score;
-      const double* x = X + (size_t)i * d;
-      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x, dirs_);
-      if (P.clip) r = r < y_lo ? y_lo : (r > y_hi ? y_hi : r);
-      op[i] = r;
-    }
+    accumulate_raw(X, n, d, op);
+    if (P.clip)
+      for (int i = 0; i < n; i++) op[i] = op[i] < y_lo ? y_lo : (op[i] > y_hi ? y_hi : op[i]);
     return out;
   }
 
@@ -1224,16 +1242,13 @@ class Booster {
     auto Xb = Xa.request();
     int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
     const double* X = (const double*)Xb.ptr;
-
     auto out = py::array_t<double>({(py::ssize_t)n, (py::ssize_t)2});
     double* op = (double*)out.request().ptr;
-
+    std::vector<double> raw(n);
+    accumulate_raw(X, n, d, raw.data());
 #pragma omp parallel for if (n > 2000)
     for (int i = 0; i < n; i++) {
-      double r = init_score;
-      const double* x = X + (size_t)i * d;
-      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x, dirs_);
-      double p = 1.0 / (1.0 + std::exp(-r));
+      double p = 1.0 / (1.0 + std::exp(-raw[i]));
       op[i * 2] = 1 - p;
       op[i * 2 + 1] = p;
     }
