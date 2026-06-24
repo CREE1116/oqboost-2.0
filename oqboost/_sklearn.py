@@ -194,13 +194,26 @@ class _BaseOQBoost(BaseEstimator):
             raise ValueError("monotone_constraints 값은 -1/0/+1만 가능")
         return out
 
+    @staticmethod
+    def _sw(sample_weight, n):
+        """sample_weight -> array for the C++ backend. None -> empty (unweighted)."""
+        if sample_weight is None:
+            return np.empty(0, dtype=float)
+        sw = np.ascontiguousarray(np.asarray(sample_weight, dtype=float).ravel())
+        if sw.shape[0] != n:
+            raise ValueError(f"sample_weight length {sw.shape[0]} != n_samples {n}")
+        if np.any(sw < 0):
+            raise ValueError("sample_weight must be non-negative")
+        return sw
+
 
 class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
     """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         X, y = _check_Xy(X, y)
         Xc = np.ascontiguousarray(X, dtype=float)
+        sw = self._sw(sample_weight, len(y))
         # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분). threshold는 유지.
         if (self.warm_start and getattr(self, "classes_", None) is not None
                 and X.shape[1] == getattr(self, "n_features_in_", None)):
@@ -208,12 +221,12 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
                 extra = self.n_estimators - self._booster.n_trees()
                 if extra > 0:
                     self._booster.fit_more(
-                        Xc, (y == self.classes_[1]).astype(float), extra)
+                        Xc, (y == self.classes_[1]).astype(float), extra, sw)
             else:
                 for cls, b in zip(self.classes_, self._boosters):
                     extra = self.n_estimators - b.n_trees()
                     if extra > 0:
-                        b.fit_more(Xc, (y == cls).astype(float), extra)
+                        b.fit_more(Xc, (y == cls).astype(float), extra, sw)
             return self
         self.classes_ = np.unique(y)
         self.n_features_in_ = X.shape[1]
@@ -224,7 +237,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
             ybin = (y == self.classes_[1]).astype(float)
             self.decision_threshold_ = self._fit_threshold(Xc, ybin)
             self._booster = self._make_booster(objective=0)
-            self._booster.fit(Xc, ybin)
+            self._booster.fit(Xc, ybin, sw)
         else:
             # one-vs-rest: 클래스마다 이진 부스터
             self._multiclass = True
@@ -232,7 +245,7 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
             self._boosters = []
             for cls in self.classes_:
                 b = self._make_booster(objective=0)
-                b.fit(Xc, (y == cls).astype(float))
+                b.fit(Xc, (y == cls).astype(float), sw)
                 self._boosters.append(b)
         return self
 
@@ -331,20 +344,21 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
 class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
     """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         X, y = _check_Xy(X, y, y_numeric=True)
         Xc = np.ascontiguousarray(X, dtype=float)
         yf = y.astype(float)
+        sw = self._sw(sample_weight, len(y))
         # warm-start: 같은 데이터에 트리만 추가 (n_estimators 증가분).
         if (self.warm_start and getattr(self, "_booster", None) is not None
                 and X.shape[1] == getattr(self, "n_features_in_", None)):
             extra = self.n_estimators - self._booster.n_trees()
             if extra > 0:
-                self._booster.fit_more(Xc, yf, extra)
+                self._booster.fit_more(Xc, yf, extra, sw)
             return self
         self.n_features_in_ = X.shape[1]
         self._booster = self._make_booster(objective=1)
-        self._booster.fit(Xc, yf)
+        self._booster.fit(Xc, yf, sw)
         return self
 
     def predict(self, X):

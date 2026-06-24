@@ -34,7 +34,7 @@
 
 | #   | 항목                          | 난이도 | 메모                                                                                                          |
 | --- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| ☐   | **sample_weight**             | 중     | `fit(X, y, sample_weight)` → C++ g/h에 가중 곱. 불균형·파이프라인·CV 필수. 누락 중.                           |
+| ☑   | **sample_weight**             | 중     | ✅ 완료. `fit(X, y, sample_weight)` → boost_rounds서 g,h에 w 곱(Newton 정확) + 가중 init. 검증: w=1 항등, 극단가중 지배, weighted≈replicated(mean diff ~0.002; 잔차=unweighted binning 2차효과). 다중클래스/회귀/warm-start. |
 | ☐   | **early stopping / eval_set** | 중     | `eval_set` + `n_iter_no_change` → val 메트릭 모니터링, `best_iteration_`서 트리 절단. n_estimators 수동 탈피. |
 | ☐   | **sklearn 완전 준수**         | 낮~중  | `check_estimator` FAIL — predict서 n*features 일관성 검증 X, `feature_names_in*` 없음. 신뢰성·생태계 호환.    |
 | ☐   | **class_weight**              | 낮     | 분류 클래스 가중(sample_weight 위에 구축).                                                                    |

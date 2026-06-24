@@ -923,6 +923,7 @@ class Booster {
   std::vector<double> coef_imp_;     // Σ gain·|coef| (계수 가중 importance)
   std::vector<double> inter_;        // d×d 상삼각: Σ gain·|a|·|b| (사선쌍 interaction)
   std::vector<std::vector<double>> dirs_;  // LOB dense 방향 테이블 (node.dir_id 참조)
+  std::vector<double> w_;            // sample_weight (empty = unweighted)
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
@@ -948,30 +949,46 @@ class Booster {
     P.max_lineage = max_lineage;
   }
 
+  // sample_weight: empty array = unweighted. In Newton boosting, multiplying g
+  // and h by w applies the weight exactly (leaf=-G/H, gain, direction-fit all use
+  // the weighted g/h).
+  void set_weights(py::array_t<double, py::array::c_style | py::array::forcecast> wa, int n) {
+    auto wb = wa.request();
+    if ((int)wb.size == n) {
+      const double* wp = (const double*)wb.ptr;
+      w_.assign(wp, wp + n);
+    } else {
+      w_.clear();
+    }
+  }
+
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
-           py::array_t<double, py::array::c_style | py::array::forcecast> ya) {
+           py::array_t<double, py::array::c_style | py::array::forcecast> ya,
+           py::array_t<double, py::array::c_style | py::array::forcecast> wa) {
     auto Xb = Xa.request();
     auto yb = ya.request();
     int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
     const double* X = (const double*)Xb.ptr;
     const double* y = (const double*)yb.ptr;
+    set_weights(wa, n);
     // 단일 소스로 통일: max_bins가 전역 사전 binning과 2D threshold 스캔
     // 해상도를 동시에 결정. fit() 호출당 한 번만 쓰고 이후 읽기 전용.
     g_hist_bins = std::max(2, P.max_bins);
     Bins B = precompute_bins(X, n, d, P.max_bins, P.categorical);
 
-    double ybar = 0;
-    for (int i = 0; i < n; i++) ybar += y[i];
-    ybar /= n;
+    bool wt = !w_.empty();
+    double sw = 0, ybar = 0;
+    for (int i = 0; i < n; i++) { double wi = wt ? w_[i] : 1.0; ybar += wi * y[i]; sw += wi; }
+    ybar /= (sw > 0 ? sw : 1.0);
     y_lo = y_hi = (n ? y[0] : 0.0);
     for (int i = 0; i < n; i++) { y_lo = std::min(y_lo, y[i]); y_hi = std::max(y_hi, y[i]); }
     if (P.objective == 0) {
       double y2 = std::min(std::max(ybar, 1e-6), 1 - 1e-6);
       init_score = std::log(y2 / (1 - y2));
     } else if (P.loss == 0) {
-      init_score = ybar;  // squared → mean
+      init_score = ybar;  // squared -> weighted mean
     } else {
-      // huber/quantile → median (이상치에 robust한 시작점)
+      // huber/quantile -> median (unweighted; init only, minor effect)
       std::vector<double> ys(y, y + n);
       size_t mid = ys.size() / 2;
       std::nth_element(ys.begin(), ys.begin() + mid, ys.end());
@@ -993,13 +1010,15 @@ class Booster {
   // 재구성하므로 별도 상태 보존 불필요. init_score·importances·rng_ 이어서 사용.
   void fit_more(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
                 py::array_t<double, py::array::c_style | py::array::forcecast> ya,
-                int extra) {
+                int extra,
+                py::array_t<double, py::array::c_style | py::array::forcecast> wa) {
     auto Xb = Xa.request();
     auto yb = ya.request();
     int n = (int)Xb.shape[0], d = (int)Xb.shape[1];
     const double* X = (const double*)Xb.ptr;
     const double* y = (const double*)yb.ptr;
     if (extra <= 0 || trees.empty()) return;
+    set_weights(wa, n);
     g_hist_bins = std::max(2, P.max_bins);
     Bins B = precompute_bins(X, n, d, P.max_bins, P.categorical);
     // 기존 트리로 raw 재구성 (predict_raw와 동일, clip 제외)
@@ -1058,6 +1077,10 @@ class Booster {
           g[i] = r > 0 ? -P.alpha : (1.0 - P.alpha);
           h[i] = 1.0;
         }
+      }
+      if (!w_.empty()) {  // sample_weight: scale g,h by w (exact Newton weighting)
+#pragma omp parallel for if (n > 8000)
+        for (int i = 0; i < n; i++) { g[i] *= w_[i]; h[i] *= w_[i]; }
       }
 
       std::vector<int> rows;
@@ -1440,8 +1463,10 @@ PYBIND11_MODULE(oqboost_core, m) {
            py::arg("monotone") = std::vector<int>{},
            py::arg("categorical") = std::vector<int>{},
            py::arg("max_lineage") = 0)
-      .def("fit", &Booster::fit)
-      .def("fit_more", &Booster::fit_more)
+      .def("fit", &Booster::fit, py::arg("X"), py::arg("y"),
+           py::arg("sample_weight") = py::array_t<double>(0))
+      .def("fit_more", &Booster::fit_more, py::arg("X"), py::arg("y"),
+           py::arg("extra"), py::arg("sample_weight") = py::array_t<double>(0))
       .def("n_trees", &Booster::n_trees)
       .def("predict_raw", &Booster::predict_raw)
       .def("predict_proba", &Booster::predict_proba)
