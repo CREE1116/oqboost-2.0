@@ -266,6 +266,18 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
     """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
 
     def fit(self, X, y, sample_weight=None):
+        """Fit the classifier.
+
+        Parameters
+        ----------
+        X, y : training data; y may be binary or multiclass (handled one-vs-rest).
+        sample_weight : array-like of shape (n_samples,), optional
+            Per-sample weights. They scale each sample's gradient and hessian, so a
+            sample's influence on the loss is proportional to its weight. Note: this
+            is **not exactly equivalent to repeating rows** — the histogram bin edges
+            are computed unweighted, so weighted and replicated fits differ at a
+            second-order level (the gap shrinks as ``max_bins`` grows).
+        """
         if y is None:
             raise ValueError("requires y to be passed, but the target y is None")
         warm = self.warm_start and getattr(self, "classes_", None) is not None
@@ -408,6 +420,16 @@ class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
     """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
 
     def fit(self, X, y, sample_weight=None):
+        """Fit the regressor.
+
+        Parameters
+        ----------
+        X, y : training data (numeric target).
+        sample_weight : array-like of shape (n_samples,), optional
+            Per-sample weights scaling each sample's gradient and hessian. Not
+            exactly equivalent to repeating rows — bin edges are computed unweighted
+            (a second-order difference that shrinks as ``max_bins`` grows).
+        """
         if y is None:
             raise ValueError("requires y to be passed, but the target y is None")
         warm = self.warm_start and getattr(self, "_booster", None) is not None
