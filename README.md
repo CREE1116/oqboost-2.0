@@ -25,6 +25,14 @@ Decision boundaries on synthetic 2D problems. Because splits are oblique, OQBoos
 represents diagonal boundaries (Spiral, XOR) directly rather than approximating
 them with axis-aligned steps.
 
+The same holds for multiclass (one-vs-rest) decision regions — OQBoost draws the
+smooth curved class boundaries of a 3-arm spiral where axis-aligned boosters
+staircase:
+
+<p align="center">
+  <img src="docs/decision_boundary_multiclass.png" alt="OQBoost multiclass decision regions (3 classes) vs XGBoost / LightGBM / CatBoost" width="820">
+</p>
+
 ---
 
 ## Key properties
