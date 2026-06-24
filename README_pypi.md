@@ -72,6 +72,19 @@ reg = OQBoostRegressor(monotone_constraints={0: +1, 3: -1}).fit(X_train, y_train
 clf = OQBoostClassifier(n_estimators=100, warm_start=True).fit(X_train, y_train)
 clf.set_params(n_estimators=200).fit(X_train, y_train)   # trains only +100 trees
 
+# Sample / class weighting (imbalanced data, weighted CV folds).
+clf = OQBoostClassifier(class_weight="balanced").fit(X_train, y_train)
+reg = OQBoostRegressor().fit(X_train, y_train, sample_weight=w)
+
+# Early stopping on a held-out validation fraction (sklearn GradientBoosting-style).
+clf = OQBoostClassifier(n_estimators=2000, n_iter_no_change=20,
+                        validation_fraction=0.1).fit(X_train, y_train)
+clf.best_iteration_
+
+# Sparse input (scipy CSR/CSC) is accepted (densified internally).
+from scipy.sparse import csr_matrix
+clf.fit(csr_matrix(X_train), y_train)
+
 # Serialization: models are pickle / joblib compatible out of the box.
 import pickle, joblib
 pickle.dump(clf, open("clf.pkl", "wb"))

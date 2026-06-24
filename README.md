@@ -257,6 +257,14 @@ joblib.dump(clf, "clf.joblib")
 | `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (one bin per level, ignoring `max_bins`)                          |
 | `max_lineage`          | 0           | **LOB** (experimental): `>0` approximates high-order oblique interactions with only 2×2 solves — a node inherits ancestor directions so `(z, x)` / `(z, z)` pairs enter the 2D search and directions compose hierarchically (never a full d-dim solve). 0 = classic 2D. Pair with `n_screen` to bound the candidate pool. |
+| `class_weight`         | `None`      | classifier only — `"balanced"` or a `{class: weight}` dict, folded into sample weights |
+| `n_iter_no_change`     | `None`      | early stopping: stop after this many rounds without validation improvement (with `validation_fraction`, `tol`) |
+
+`fit` also accepts `sample_weight`. Inputs may be NumPy or pandas (feature names
+tracked) and scipy **sparse** matrices (densified internally); NaNs are handled
+natively. The estimators pass scikit-learn's `check_estimator` (bar the exact
+sample-weight-equivalence checks, an inherent limitation of stochastic
+histogram-binned boosters).
 
 ---
 
