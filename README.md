@@ -25,30 +25,6 @@ Decision boundaries on synthetic 2D problems. Because splits are oblique, OQBoos
 represents diagonal boundaries (Spiral, XOR) directly rather than approximating
 them with axis-aligned steps.
 
-The same holds for multiclass (one-vs-rest) decision regions — OQBoost draws the
-smooth curved class boundaries of a 3-arm spiral where axis-aligned boosters
-staircase:
-
-<p align="center">
-  <img src="docs/images/decision_boundary_multiclass.png" alt="OQBoost multiclass decision regions (3 classes) vs XGBoost / LightGBM / CatBoost" width="820">
-</p>
-
----
-
-## Key properties
-
-| Feature                   | OQBoost 2.0                                                            |
-| ------------------------- | ---------------------------------------------------------------------- |
-| Split type                | Oblique — linear combination of **two** features per node              |
-| Direction finding         | H-weighted gradient regression (2×2, O(1)) — deterministic, `fast_dir` |
-| Higher-order interactions | Composed via tree depth + boosting (2D atoms)                          |
-| Categorical features      | Integer codes through the oblique path; `categorical_features` gives marked columns lossless binning |
-| Missing values            | Native — NaN routed to a dedicated learned bin (no imputation needed)  |
-| Speed                     | Global histogram binning + OpenMP-parallel pair search                 |
-| Tasks                     | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor`     |
-| API                       | scikit-learn compatible                                                |
-| Backend                   | Compiled C++ (pybind11)                                                |
-
 ---
 
 ## Install
@@ -57,17 +33,15 @@ staircase:
 pip install oqboost
 ```
 
-Prebuilt wheels are provided for Windows, macOS (arm64), and Ubuntu/Linux via
-cibuildwheel. Building from source needs `clang++`/`g++` (C++17) and, for
-parallelism, OpenMP (`brew install libomp` on macOS).
+Prebuilt wheels for Windows, macOS (arm64), and Linux. See
+[docs/installation.md](docs/installation.md) for source builds and OpenMP.
 
 ## Quickstart
 
 ```python
 from oqboost import OQBoostClassifier, OQBoostRegressor
 
-clf = OQBoostClassifier(n_estimators=120, learning_rate=0.06,
-                        max_depth=4, subsample=0.8, colsample=0.8)
+clf = OQBoostClassifier(n_estimators=120, learning_rate=0.06, max_depth=4)
 clf.fit(X_train, y_train)
 proba = clf.predict_proba(X_test)[:, 1]
 
@@ -75,196 +49,48 @@ reg = OQBoostRegressor().fit(X_train, y_train)
 yhat = reg.predict(X_test)
 ```
 
-Both are drop-in scikit-learn estimators (`get_params`/`set_params`/`clone`,
-Pipelines, GridSearchCV).
+Drop-in scikit-learn estimators — Pipelines, GridSearchCV, `clone`, pickle/joblib.
+More in [docs/quickstart.md](docs/quickstart.md).
+
+## Key properties
+
+| Feature | OQBoost 2.0 |
+| ------- | ----------- |
+| Split type | Oblique — linear combination of **two** features per node |
+| Direction finding | H-weighted gradient regression (2×2, O(1)) — deterministic |
+| Higher-order interactions | Composed via tree depth + boosting (2D atoms) |
+| Missing values | Native — NaN routed to a learned bin (no imputation) |
+| Inputs | NumPy / pandas (feature names) / scipy sparse |
+| Tasks | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor` |
+| API | scikit-learn compatible (`check_estimator`) |
+| Backend | Compiled C++ (pybind11) |
 
 ---
 
 ## Benchmark
 
-Optuna-tuned (each model gets the same trial budget), diverse OpenML datasets across
-**binary, multiclass, and regression** tasks, held-out test metrics. Reproduce with:
+Independently Optuna-tuned across diverse OpenML datasets (binary / multiclass /
+regression), held-out test metrics. Mean rank (1 = best), wins in parentheses:
 
-```bash
-python scripts/optimize.py 30 10     # tune all 4 models × 3 task suites → docs/optuna_params.json
-python scripts/benchmark.py          # evaluate from cached params
-# limit to one task type:  python scripts/optimize.py 30 10 --tasks=regression
-```
+| Task (datasets) | OQBoost | CatBoost | XGBoost | LightGBM |
+| --------------- | ------: | -------: | ------: | -------: |
+| Binary (12)     | **2.08** (6) | 2.33 (4) | 2.29 (2) | 3.29 (0) |
+| Multiclass (10) | **2.20** (5) | 2.40 (2) | 2.70 (1) | 2.70 (2) |
+| Regression (10) | 2.50 (2) | **1.40** (6) | 3.20 (1) | 2.90 (1) |
 
-Tuning (`optimize.py`) and evaluation (`benchmark.py`) are separate; best params are
-cached to `docs/optuna_params.json` and reused. Metrics per task: binary/multiclass use
-ROC-AUC (OvR macro for multiclass) plus accuracy / balanced accuracy (decision threshold
-tuned on validation, uniformly across models); regression uses R² / RMSE / MAE.
-
-<p align="center">
-  <img src="docs/images/benchmark_optuna.png" alt="Optuna-tuned test metrics across binary / multiclass / regression OpenML suites" width="820">
-</p>
-
-Across 32 OpenML datasets (each model independently Optuna-tuned). **Mean rank** of
-the primary metric per task (1 = best; ROC-AUC for classification, R² for regression),
-with outright wins in parentheses:
-
-| Task (datasets)     |       OQBoost |  CatBoost |  XGBoost | LightGBM |
-| ------------------- | ------------: | --------: | -------: | -------: |
-| Binary (12)         | **2.08** (6)  | 2.33 (4)  | 2.29 (2) | 3.29 (0) |
-| Multiclass (10)     | **2.20** (5)  | 2.40 (2)  | 2.70 (1) | 2.70 (2) |
-| Regression (10)     |     2.50 (2)  | **1.40** (6) | 3.20 (1) | 2.90 (1) |
-
-OQBoost is competitive with the established gradient-boosting libraries across all
-three task types — it leads **both classification suites** on mean rank and wins
-(binary and multiclass), and lands second to CatBoost on regression. On the
-classification suites it also has the best mean balanced accuracy (binary 0.850,
-multiclass 0.827, tied). Differences are generally small and tuning/dataset
-dependent; treat this as one reproducible snapshot, not a definitive ranking. Where
-the oblique structure helps most is interaction-heavy problems — see the 2D synthetic
-boundaries above.
-
-### Prediction similarity
-
-How much does OQBoost agree with the axis-aligned boosters? Pairwise prediction
-similarity across the tuned suites — **label agreement** for classification, **Pearson
-correlation of predictions** for regression (`python scripts/model_similarity.py --full`):
-
-<p align="center">
-  <img src="docs/images/model_similarity.png" alt="Pairwise prediction similarity heatmaps" width="820">
-</p>
-
-| Binary (26)  | OQBoost | XGBoost | LightGBM | CatBoost |
-| ------------ | ------: | ------: | -------: | -------: |
-| **OQBoost**  |  1.000  |  0.953  |   0.950  |   0.963  |
-| **XGBoost**  |  0.953  |  1.000  |   0.965  |   0.958  |
-| **LightGBM** |  0.950  |  0.965  |   1.000  |   0.957  |
-| **CatBoost** |  0.963  |  0.958  |   0.957  |   1.000  |
-
-| Multiclass (13) | OQBoost | XGBoost | LightGBM | CatBoost |
-| --------------- | ------: | ------: | -------: | -------: |
-| **OQBoost**     |  1.000  |  0.935  |   0.926  |   0.943  |
-| **XGBoost**     |  0.935  |  1.000  |   0.930  |   0.936  |
-| **LightGBM**    |  0.926  |  0.930  |   1.000  |   0.930  |
-| **CatBoost**    |  0.943  |  0.936  |   0.930  |   1.000  |
-
-| Regression (12) | OQBoost | XGBoost | LightGBM | CatBoost |
-| --------------- | ------: | ------: | -------: | -------: |
-| **OQBoost**     |  1.000  |  0.977  |   0.978  |   0.979  |
-| **XGBoost**     |  0.977  |  1.000  |   0.985  |   0.983  |
-| **LightGBM**    |  0.978  |  0.985  |   1.000  |   0.982  |
-| **CatBoost**    |  0.979  |  0.983  |   0.982  |   1.000  |
-
-The axis-aligned trio (XGBoost / LightGBM / CatBoost) agree most tightly with each
-other, while OQBoost sits slightly further from all three — it learns a somewhat
-different function thanks to the oblique splits, which makes it a useful **diversifier**
-in an ensemble.
+OQBoost leads both classification suites and lands second to CatBoost on
+regression. Full tables, prediction-similarity, and reproduction in
+[docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 
-## How it works
+## Documentation
 
-1. **Newton boosting** (logistic / squared-error). Per round, fit one oblique tree to
-   the gradient/hessian.
-2. **Histogram binning** once at fit: per-feature quantile bins precomputed, so node
-   split search is sort-free O(n) accumulation.
-3. **2D-oblique split**: for each feature pair, find the direction by H-weighted
-   least-squares regression of the Newton target (`-g/h`) on the two raw features
-   (one 2×2 solve), then scan the projection for the threshold. Best of 1D vs 2D by gain.
-4. Higher-order interactions come from **depth + boosting**, not wider splits — 2D is
-   the bias/variance and search-cost sweet spot.
-
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the feature roadmap and status.
-
----
-
-## Explainability
-
-Because every split is a 2D oblique combination, OQBoost exposes **native**
-explanations rather than copying TreeSHAP (which assumes axis-aligned trees):
-
-```python
-clf.feature_importances_       # Σ gain per feature (sklearn-standard)
-clf.coefficient_importances_   # Σ gain·|coef| per feature (direction-weighted)
-clf.interaction_importances_   # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
-phi = clf.explain(X)           # (n, n_features) additive per-sample contributions
-```
-
-`explain(X)` is **additive** like SHAP — `phi.sum(axis=1)` equals the raw
-prediction minus the base score — so it lines up directly with `shap` values
-from other models, while `interaction_importances_` reads off the pairwise
-structure the oblique splits actually learned (at zero extra cost). `explain(X)`
-returns `(n, n_features)` for binary classification and regression, and
-`(n, n_classes, n_features)` for multiclass — `[:, k, :]` are the additive
-contributions to class `k`'s one-vs-rest score. (`explain` is unavailable when
-`max_lineage>0`, since LOB's composed dense directions have no path-additive
-attribution.)
-
-`oqboost.plot` renders these with matplotlib (no `shap` dependency):
-
-```python
-import oqboost.plot as oqp
-oqp.plot_importance(model)            # Σ gain·|coef| per feature
-oqp.plot_interactions(model)          # d×d pairwise-interaction heatmap
-oqp.plot_explanation(model, x)        # one-sample additive contributions
-oqp.plot_explanation_summary(model, X)  # SHAP-style beeswarm over samples
-```
-
-For multiclass models every plot takes `class_idx=k` to view a single class's
-booster (importance / interactions / explanation); omitting it aggregates over
-classes (importances) or uses the predicted / most-frequent class (explanations).
-
-<p align="center">
-  <img src="docs/images/explainability.png" alt="OQBoost native explanation plots" width="820">
-</p>
-
-On data with a true `age·income` interaction plus independent `capital`/`debt`
-linear terms, the heatmap surfaces `age×income`. It also pairs `capital×debt`:
-oblique trees fold two independent linear effects into a single direction
-`a·capital + b·debt`, so `interaction_importances_` reflects **features co-used
-in a split** — genuine interactions and efficient linear combinations alike.
-
-Reproduce with `python scripts/explain_demo.py`.
-
----
-
-## Serialization
-
-Models are pickle / joblib compatible out of the box (C++ state is serialized via the
-wrapper's `__getstate__`/`__setstate__`):
-
-```python
-import pickle, joblib
-pickle.dump(clf, open("clf.pkl", "wb"))
-clf2 = pickle.load(open("clf.pkl", "rb"))
-joblib.dump(clf, "clf.joblib")
-```
-
----
-
-## Key hyperparameters
-
-| Param                  | Default     | Meaning                                                                                                                         |
-| ---------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `n_estimators`         | 120         | boosting rounds                                                                                                                 |
-| `learning_rate`        | 0.06        | shrinkage                                                                                                                       |
-| `max_depth`            | 4           | interaction depth                                                                                                               |
-| `max_bins`             | 16          | grid / direction-seed resolution (keep small)                                                                                   |
-| `subsample`            | 0.8         | rows per tree                                                                                                                   |
-| `colsample`            | 0.8         | features per node                                                                                                               |
-| `reg_lambda`           | 1.0         | L2                                                                                                                              |
-| `n_screen`             | -1          | SIS top-m feature screening (-1 = exhaustive)                                                                                   |
-| `threshold`            | `"0.5"`     | binary decision cut — `"balanced"`/`"f1"` tunes it on a holdout (helps imbalanced data; probabilities stay calibrated)          |
-| `loss`                 | `"squared"` | regression loss — `"huber"`/`"quantile"` are outlier-robust (init = median)                                                     |
-| `alpha`                | 0.9         | huber: residual quantile for the δ transition · quantile: target quantile                                                       |
-| `clip`                 | `False`     | clamp regression output to the training target range (no extrapolation blow-up)                                                 |
-| `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
-| `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
-| `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (one bin per level, ignoring `max_bins`)                          |
-| `max_lineage`          | 0           | **LOB** (experimental): `>0` approximates high-order oblique interactions with only 2×2 solves — a node inherits ancestor directions so `(z, x)` / `(z, z)` pairs enter the 2D search and directions compose hierarchically (never a full d-dim solve). 0 = classic 2D. Pair with `n_screen` to bound the candidate pool. |
-| `class_weight`         | `None`      | classifier only — `"balanced"` or a `{class: weight}` dict, folded into sample weights |
-| `n_iter_no_change`     | `None`      | early stopping: stop after this many rounds without validation improvement (with `validation_fraction`, `tol`) |
-
-`fit` also accepts `sample_weight`. Inputs may be NumPy or pandas (feature names
-tracked) and scipy **sparse** matrices (densified internally); NaNs are handled
-natively. The estimators pass scikit-learn's `check_estimator` (bar the exact
-sample-weight-equivalence checks, an inherent limitation of stochastic
-histogram-binned boosters).
+- **[Installation](docs/installation.md)** · **[Quickstart](docs/quickstart.md)** · **[Benchmarks](docs/benchmarks.md)** · **[Explainability](docs/explainability.md)**
+- **API** — [Classifier](docs/api/classifier.md) · [Regressor](docs/api/regressor.md) · [Plotting](docs/api/plotting.md)
+- **Guides** — [Categorical](docs/guides/categorical.md) · [Monotonic](docs/guides/monotonic.md) · [Early stopping](docs/guides/early_stopping.md) · [Warm start](docs/guides/warm_start.md) · [Multiclass](docs/guides/multiclass.md)
+- **Internals** — [Algorithm](docs/internals/algorithm.md) · [LOB](docs/internals/lob.md) · [Roadmap](docs/internals/roadmap.md)
+- **Examples** — [Binary](docs/examples/binary.md) · [Regression](docs/examples/regression.md) · [Multiclass](docs/examples/multiclass.md) · [Explainability](docs/examples/explainability.md)
 
 ---
 
