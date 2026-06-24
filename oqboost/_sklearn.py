@@ -49,12 +49,22 @@ except ImportError:  # sklearn 1.3–1.5
         return est._validate_data(X, y, reset=reset, **kw)
 
 
+def _densify(X):
+    # the backend needs a dense array and reads every feature (O(d^2) pair search),
+    # so sparse input is accepted but densified.
+    import scipy.sparse as sp
+    return X.toarray() if sp.issparse(X) else X
+
+
 def _check_X(est, X):
-    return _vd(est, X, reset=False, dtype=float, **{_FINITE_KW: "allow-nan"})
+    return _densify(_vd(est, X, reset=False, dtype=float, accept_sparse="csr",
+                        **{_FINITE_KW: "allow-nan"}))
 
 
 def _check_Xy(est, X, y, reset=True, **kw):
-    return _vd(est, X, y, reset=reset, dtype=float, **{_FINITE_KW: "allow-nan"}, **kw)
+    X, y = _vd(est, X, y, reset=reset, dtype=float, accept_sparse="csr",
+               **{_FINITE_KW: "allow-nan"}, **kw)
+    return _densify(X), y
 
 
 class _BaseOQBoost(BaseEstimator):
@@ -113,11 +123,12 @@ class _BaseOQBoost(BaseEstimator):
     # NaN is handled natively by the backend; tell sklearn it is intentional.
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()
-        tags.input_tags.allow_nan = True
+        tags.input_tags.allow_nan = True   # NaN handled natively
+        tags.input_tags.sparse = True      # sparse accepted (densified internally)
         return tags
 
     def _more_tags(self):  # sklearn < 1.6
-        return {"allow_nan": True}
+        return {"allow_nan": True, "X_types": ["2darray", "sparse"]}
 
     # ── pickle serialization: C++ booster <-> bytes ─────────────────────────
     def __getstate__(self):
