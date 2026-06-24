@@ -196,6 +196,10 @@ oqp.plot_explanation(model, x)        # one-sample additive contributions
 oqp.plot_explanation_summary(model, X)  # SHAP-style beeswarm over samples
 ```
 
+For multiclass models every plot takes `class_idx=k` to view a single class's
+booster (importance / interactions / explanation); omitting it aggregates over
+classes (importances) or uses the predicted / most-frequent class (explanations).
+
 <p align="center">
   <img src="docs/explainability.png" alt="OQBoost native explanation plots" width="820">
 </p>
