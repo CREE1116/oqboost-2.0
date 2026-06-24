@@ -74,9 +74,11 @@ MODELS = {
 
 # ─── 회귀 search space (분류와 동형, n_screen=16 고정 — 실측상 최적 트레이드오프) ──
 def oq_reg_params(t):
+    # 회귀는 함수근사라 분류(1-4로 충분)보다 깊이를 더 원함 — house_16H/puma32H 등서
+    # depth 4-6이 sweet spot(측정). 범위를 1-7로 확장.
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 1, 4),
+                max_depth=t.suggest_int("max_depth", 1, 7),
                 max_bins=t.suggest_int("max_bins", 8, 255),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
