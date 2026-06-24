@@ -13,6 +13,7 @@
 #include <limits>
 #include <numeric>
 #include <random>
+#include <unordered_map>
 #include <vector>
 #ifdef _OPENMP
 #include <omp.h>
@@ -1523,7 +1524,122 @@ class Booster {
   }
 };
 
+// ── target encoding kernel ──────────────────────────────────────────────────
+// Random fold assignment for cross-fitting. stratified=true keeps class
+// proportions per fold (group by rounded label, shuffle, block-assign); else
+// plain shuffled K-fold. Exact composition is unimportant — only balance.
+static py::array_t<int> make_folds(
+    py::array_t<double, py::array::c_style | py::array::forcecast> y_a,
+    int nf, unsigned seed, bool stratified) {
+  auto yb = y_a.request();
+  int n = (int)yb.shape[0];
+  const double* y = (const double*)yb.ptr;
+  auto out = py::array_t<int>(n); int* f = (int*)out.request().ptr;
+  std::mt19937 rng(seed);
+  if (!stratified) {
+    std::vector<int> idx(n);
+    for (int i = 0; i < n; i++) idx[i] = i;
+    std::shuffle(idx.begin(), idx.end(), rng);
+    for (int r = 0; r < n; r++) f[idx[r]] = (int)((long long)r * nf / n);
+  } else {
+    std::unordered_map<long long, std::vector<int>> buckets;
+    for (int i = 0; i < n; i++) buckets[(long long)std::llround(y[i])].push_back(i);
+    for (auto& kv : buckets) {
+      auto& v = kv.second;
+      std::shuffle(v.begin(), v.end(), rng);
+      int sz = (int)v.size();
+      for (int r = 0; r < sz; r++) f[v[r]] = (int)((long long)r * nf / sz);
+    }
+  }
+  return out;
+}
+
+
+// Empirical-Bayes (Micci-Barreca "auto") target encoding. Within-level sum of
+// squared deviations is computed single-pass as ssd = Q - S^2/C (Q = sum y^2),
+// so out-of-fold stats are just global-minus-fold subtractions.
+static inline double te_auto(double c, double s, double q, double gmean, double yvar) {
+  if (c <= 0) return gmean;
+  double mean = s / c;
+  double within = (q - s * s / c) / c;       // within-level variance
+  double denom = yvar * c + within;
+  if (denom <= 0) return gmean;
+  double lam = yvar * c / denom;              // shrinkage toward the global mean
+  return lam * mean + (1.0 - lam) * gmean;
+}
+
+// Cross-fitted encoding for training (leak-resistant via the fold assignment)
+// plus the full-data level map for transform() at predict. Returns
+// (enc_train[n], full_map[K], global_mean).
+static py::tuple te_fit_transform(
+    py::array_t<long long, py::array::c_style | py::array::forcecast> codes_a,
+    py::array_t<double, py::array::c_style | py::array::forcecast> y_a,
+    py::array_t<int, py::array::c_style | py::array::forcecast> folds_a,
+    int K, int nf) {
+  auto cb = codes_a.request(), yb = y_a.request(), fb = folds_a.request();
+  int n = (int)cb.shape[0];
+  const long long* codes = (const long long*)cb.ptr;
+  const double* y = (const double*)yb.ptr;
+  const int* folds = (const int*)fb.ptr;
+
+  std::vector<double> C((size_t)nf * K, 0), S((size_t)nf * K, 0), Q((size_t)nf * K, 0);
+  std::vector<double> Cf(nf, 0), Sf(nf, 0), Qf(nf, 0);
+  for (int i = 0; i < n; i++) {
+    int f = folds[i]; long long k = codes[i]; double yi = y[i];
+    if (k < 0 || k >= K) continue;
+    size_t idx = (size_t)f * K + k;
+    C[idx] += 1; S[idx] += yi; Q[idx] += yi * yi;
+    Cf[f] += 1; Sf[f] += yi; Qf[f] += yi * yi;
+  }
+  std::vector<double> Ck(K, 0), Sk(K, 0), Qk(K, 0);
+  double Ct = 0, St = 0, Qt = 0;
+  for (int f = 0; f < nf; f++) {
+    Ct += Cf[f]; St += Sf[f]; Qt += Qf[f];
+    for (int k = 0; k < K; k++) {
+      size_t idx = (size_t)f * K + k; Ck[k] += C[idx]; Sk[k] += S[idx]; Qk[k] += Q[idx];
+    }
+  }
+  std::vector<double> gm(nf), yv(nf);          // per-fold out-of-fold mean / variance
+  for (int f = 0; f < nf; f++) {
+    double c = Ct - Cf[f], s = St - Sf[f], q = Qt - Qf[f];
+    gm[f] = c > 0 ? s / c : 0; yv[f] = c > 0 ? q / c - gm[f] * gm[f] : 0;
+  }
+  auto enc = py::array_t<double>(n); double* e = (double*)enc.request().ptr;
+  for (int i = 0; i < n; i++) {
+    int f = folds[i]; long long k = codes[i];
+    if (k < 0 || k >= K) { e[i] = gm[f]; continue; }
+    size_t idx = (size_t)f * K + k;
+    e[i] = te_auto(Ck[k] - C[idx], Sk[k] - S[idx], Qk[k] - Q[idx], gm[f], yv[f]);
+  }
+  double gmean = Ct > 0 ? St / Ct : 0, yvar = Ct > 0 ? Qt / Ct - gmean * gmean : 0;
+  auto full = py::array_t<double>(K); double* fm = (double*)full.request().ptr;
+  for (int k = 0; k < K; k++) fm[k] = te_auto(Ck[k], Sk[k], Qk[k], gmean, yvar);
+  return py::make_tuple(enc, full, gmean);
+}
+
+// Apply a fitted level map; unseen / out-of-range codes fall back to gmean.
+static py::array_t<double> te_transform(
+    py::array_t<long long, py::array::c_style | py::array::forcecast> codes_a,
+    py::array_t<double, py::array::c_style | py::array::forcecast> full_a, double gmean) {
+  auto cb = codes_a.request(), mb = full_a.request();
+  int n = (int)cb.shape[0], K = (int)mb.shape[0];
+  const long long* codes = (const long long*)cb.ptr;
+  const double* fm = (const double*)mb.ptr;
+  auto out = py::array_t<double>(n); double* o = (double*)out.request().ptr;
+  for (int i = 0; i < n; i++) {
+    long long k = codes[i];
+    o[i] = (k >= 0 && k < K) ? fm[k] : gmean;
+  }
+  return out;
+}
+
 PYBIND11_MODULE(oqboost_core, m) {
+  m.def("make_folds", &make_folds, py::arg("y"), py::arg("nf"), py::arg("seed"),
+        py::arg("stratified"));
+  m.def("te_fit_transform", &te_fit_transform, py::arg("codes"), py::arg("y"),
+        py::arg("folds"), py::arg("K"), py::arg("nf"));
+  m.def("te_transform", &te_transform, py::arg("codes"), py::arg("full_map"),
+        py::arg("gmean"));
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
                     unsigned, int, int, int, double, int, std::vector<int>,
