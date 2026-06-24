@@ -106,17 +106,18 @@ with outright wins in parentheses:
 
 | Task (datasets)     |       OQBoost |  CatBoost |  XGBoost | LightGBM |
 | ------------------- | ------------: | --------: | -------: | -------: |
-| Binary (12)         | **1.92** (7)  | 2.50 (3)  | 2.38 (2) | 3.21 (0) |
-| Multiclass (10)     |     2.50 (4)  | **2.10** (3) | 2.70 (1) | 2.70 (2) |
-| Regression (10)     |     1.90 (4)  | **1.60** (5) | 3.30 (1) | 3.20 (0) |
+| Binary (12)         | **2.08** (6)  | 2.33 (4)  | 2.29 (2) | 3.29 (0) |
+| Multiclass (10)     | **2.20** (5)  | 2.40 (2)  | 2.70 (1) | 2.70 (2) |
+| Regression (10)     |     2.50 (2)  | **1.40** (6) | 3.20 (1) | 2.90 (1) |
 
 OQBoost is competitive with the established gradient-boosting libraries across all
-three task types — it leads the binary suite on mean rank and wins, and lands a close
-second to CatBoost on multiclass and regression. On the classification suites it also
-has the best mean balanced accuracy (binary 0.851, multiclass 0.830). Differences are
-generally small and tuning/dataset dependent; treat this as one reproducible snapshot,
-not a definitive ranking. Where the oblique structure helps most is interaction-heavy
-problems — see the 2D synthetic boundaries above.
+three task types — it leads **both classification suites** on mean rank and wins
+(binary and multiclass), and lands second to CatBoost on regression. On the
+classification suites it also has the best mean balanced accuracy (binary 0.850,
+multiclass 0.827, tied). Differences are generally small and tuning/dataset
+dependent; treat this as one reproducible snapshot, not a definitive ranking. Where
+the oblique structure helps most is interaction-heavy problems — see the 2D synthetic
+boundaries above.
 
 ### Prediction similarity
 

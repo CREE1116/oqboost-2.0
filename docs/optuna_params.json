@@ -305,13 +305,13 @@
   },
   "blood_transfusion": {
     "OQBoost": {
-      "n_estimators": 95,
-      "learning_rate": 0.020159858172257485,
+      "n_estimators": 81,
+      "learning_rate": 0.034003508264422166,
       "max_depth": 1,
-      "max_bins": 10,
-      "subsample": 0.643876306498514,
-      "colsample": 0.6725638815633698,
-      "reg_lambda": 3.0917268104538267,
+      "max_bins": 88,
+      "subsample": 0.7554709158757927,
+      "colsample": 0.7085396127095583,
+      "reg_lambda": 2.558586885593424,
       "n_screen": 16
     },
     "XGBoost": {
@@ -343,13 +343,13 @@
   },
   "qsar_biodeg": {
     "OQBoost": {
-      "n_estimators": 254,
-      "learning_rate": 0.02938647194556956,
+      "n_estimators": 170,
+      "learning_rate": 0.28770491665013176,
       "max_depth": 2,
-      "max_bins": 129,
-      "subsample": 0.6458230359485807,
-      "colsample": 0.9379199491870676,
-      "reg_lambda": 0.3402963912119108,
+      "max_bins": 107,
+      "subsample": 0.6572428441206489,
+      "colsample": 0.7696045853106261,
+      "reg_lambda": 0.15282125428821527,
       "n_screen": 16
     },
     "XGBoost": {
@@ -456,13 +456,13 @@
   "digits": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 222,
-      "learning_rate": 0.2010346929871885,
-      "max_depth": 4,
-      "max_bins": 220,
-      "subsample": 0.7041560561377338,
-      "colsample": 0.9351929241791144,
-      "reg_lambda": 0.2872970100273519,
+      "n_estimators": 257,
+      "learning_rate": 0.14804810358745407,
+      "max_depth": 3,
+      "max_bins": 44,
+      "subsample": 0.6603724028215264,
+      "colsample": 0.8025770358725711,
+      "reg_lambda": 0.19207890638336803,
       "n_screen": 16
     },
     "XGBoost": {
@@ -494,13 +494,13 @@
   "wine": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 206,
-      "learning_rate": 0.08810660294225381,
+      "n_estimators": 150,
+      "learning_rate": 0.26251660632419294,
       "max_depth": 3,
-      "max_bins": 77,
-      "subsample": 0.6032164883114317,
-      "colsample": 0.9741943780041289,
-      "reg_lambda": 0.3136926817486549,
+      "max_bins": 156,
+      "subsample": 0.6624074561769746,
+      "colsample": 0.662397808134481,
+      "reg_lambda": 0.1255111517297383,
       "n_screen": 16
     },
     "XGBoost": {
@@ -532,13 +532,13 @@
   "vehicle": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 178,
-      "learning_rate": 0.21133332094700255,
-      "max_depth": 3,
-      "max_bins": 108,
-      "subsample": 0.6722558544834069,
-      "colsample": 0.8604035330355404,
-      "reg_lambda": 0.16504166956740565,
+      "n_estimators": 297,
+      "learning_rate": 0.19026484761204096,
+      "max_depth": 4,
+      "max_bins": 71,
+      "subsample": 0.6701861535059359,
+      "colsample": 0.771871797105017,
+      "reg_lambda": 2.745348365459911,
       "n_screen": 16
     },
     "XGBoost": {
@@ -570,13 +570,13 @@
   "cmc": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 172,
-      "learning_rate": 0.029815461824217734,
-      "max_depth": 2,
-      "max_bins": 91,
-      "subsample": 0.7406742899483341,
-      "colsample": 0.8288771440591722,
-      "reg_lambda": 0.6470942549719962,
+      "n_estimators": 100,
+      "learning_rate": 0.08471683734843796,
+      "max_depth": 1,
+      "max_bins": 135,
+      "subsample": 0.8401581850488747,
+      "colsample": 0.7050606059897412,
+      "reg_lambda": 1.6853949076954229,
       "n_screen": 16
     },
     "XGBoost": {
@@ -608,13 +608,13 @@
   "eucalyptus": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 181,
-      "learning_rate": 0.05755237960374763,
+      "n_estimators": 68,
+      "learning_rate": 0.20178157269965058,
       "max_depth": 2,
-      "max_bins": 203,
-      "subsample": 0.9744299090020728,
-      "colsample": 0.6734667817820905,
-      "reg_lambda": 0.18986752816459648,
+      "max_bins": 255,
+      "subsample": 0.823703273195112,
+      "colsample": 0.9005329246075248,
+      "reg_lambda": 2.014768855473055,
       "n_screen": 16
     },
     "XGBoost": {
@@ -646,13 +646,13 @@
   "yeast": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 195,
-      "learning_rate": 0.03381582181761915,
+      "n_estimators": 273,
+      "learning_rate": 0.02949097385964535,
       "max_depth": 1,
-      "max_bins": 246,
-      "subsample": 0.6848020679314943,
-      "colsample": 0.8270273508878851,
-      "reg_lambda": 0.13730525410040187,
+      "max_bins": 87,
+      "subsample": 0.626434033165294,
+      "colsample": 0.6226441558803464,
+      "reg_lambda": 0.14069515209477543,
       "n_screen": 16
     },
     "XGBoost": {
@@ -684,13 +684,13 @@
   "dna": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 226,
-      "learning_rate": 0.29762477882225047,
-      "max_depth": 3,
-      "max_bins": 141,
-      "subsample": 0.6769626182668388,
-      "colsample": 0.6079059977621897,
-      "reg_lambda": 0.11239713475739953,
+      "n_estimators": 299,
+      "learning_rate": 0.2615767929583632,
+      "max_depth": 1,
+      "max_bins": 52,
+      "subsample": 0.9373139835500296,
+      "colsample": 0.9646842131439161,
+      "reg_lambda": 0.768339909471424,
       "n_screen": 16
     },
     "XGBoost": {
@@ -722,13 +722,13 @@
   "steel_plates": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 215,
-      "learning_rate": 0.032757921306541975,
+      "n_estimators": 145,
+      "learning_rate": 0.04279909806035244,
       "max_depth": 3,
-      "max_bins": 247,
-      "subsample": 0.9862611737301492,
-      "colsample": 0.6049828918237269,
-      "reg_lambda": 1.5072718688549807,
+      "max_bins": 42,
+      "subsample": 0.9208787923016158,
+      "colsample": 0.6298202574719083,
+      "reg_lambda": 4.749974771378395,
       "n_screen": 16
     },
     "XGBoost": {
@@ -760,13 +760,13 @@
   "wall_robot": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 104,
-      "learning_rate": 0.27628035240548837,
-      "max_depth": 4,
-      "max_bins": 240,
-      "subsample": 0.9579309401710595,
-      "colsample": 0.8391599915244341,
-      "reg_lambda": 3.683296438423419,
+      "n_estimators": 287,
+      "learning_rate": 0.11191410872977711,
+      "max_depth": 3,
+      "max_bins": 231,
+      "subsample": 0.849382294383044,
+      "colsample": 0.862381128932959,
+      "reg_lambda": 0.4318530776862155,
       "n_screen": 16
     },
     "XGBoost": {
@@ -798,13 +798,13 @@
   "mfeat_factors": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 74,
-      "learning_rate": 0.02234459739121785,
+      "n_estimators": 82,
+      "learning_rate": 0.024497160057770966,
       "max_depth": 3,
-      "max_bins": 247,
-      "subsample": 0.7804579507530475,
-      "colsample": 0.8081557059124052,
-      "reg_lambda": 0.12227201293606325,
+      "max_bins": 59,
+      "subsample": 0.762386503412726,
+      "colsample": 0.6225693541331037,
+      "reg_lambda": 0.24888112335384474,
       "n_screen": 16
     },
     "XGBoost": {
@@ -836,13 +836,13 @@
   "diabetes_reg": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 255,
-      "learning_rate": 0.0420266870515712,
+      "n_estimators": 264,
+      "learning_rate": 0.05181956335566037,
       "max_depth": 1,
-      "max_bins": 131,
-      "subsample": 0.7117803554171929,
-      "colsample": 0.806492285448702,
-      "reg_lambda": 0.1751802511970991,
+      "max_bins": 15,
+      "subsample": 0.860310298967739,
+      "colsample": 0.6476714208684442,
+      "reg_lambda": 1.1353025250072957,
       "n_screen": 16
     },
     "XGBoost": {
@@ -874,13 +874,13 @@
   "california": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 217,
-      "learning_rate": 0.12696425673884237,
+      "n_estimators": 288,
+      "learning_rate": 0.1447946572400994,
       "max_depth": 4,
-      "max_bins": 255,
-      "subsample": 0.8664574643038845,
-      "colsample": 0.8208104960302076,
-      "reg_lambda": 0.31548485690186945,
+      "max_bins": 210,
+      "subsample": 0.94723947721226,
+      "colsample": 0.9232598349189449,
+      "reg_lambda": 0.4803017937507179,
       "n_screen": 16
     },
     "XGBoost": {
@@ -912,13 +912,13 @@
   "houses": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 239,
-      "learning_rate": 0.18521154431428588,
+      "n_estimators": 269,
+      "learning_rate": 0.08824352401819457,
       "max_depth": 4,
-      "max_bins": 247,
-      "subsample": 0.9657467789231866,
-      "colsample": 0.869150112087094,
-      "reg_lambda": 1.959388925413361,
+      "max_bins": 147,
+      "subsample": 0.9665990453366391,
+      "colsample": 0.9876531260042627,
+      "reg_lambda": 0.26005376423391663,
       "n_screen": 16
     },
     "XGBoost": {
@@ -950,13 +950,13 @@
   "fried": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 266,
-      "learning_rate": 0.054988990600060905,
-      "max_depth": 3,
-      "max_bins": 19,
-      "subsample": 0.906836075784619,
-      "colsample": 0.7069685965425021,
-      "reg_lambda": 0.2334616072006538,
+      "n_estimators": 286,
+      "learning_rate": 0.031876151823686194,
+      "max_depth": 4,
+      "max_bins": 22,
+      "subsample": 0.6016276929675654,
+      "colsample": 0.9479953293996353,
+      "reg_lambda": 2.0966689833422434,
       "n_screen": 16
     },
     "XGBoost": {
@@ -988,13 +988,13 @@
   "cpu_small": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 283,
-      "learning_rate": 0.09001134459257944,
+      "n_estimators": 286,
+      "learning_rate": 0.07769677937907853,
       "max_depth": 4,
-      "max_bins": 179,
-      "subsample": 0.7334518725934791,
-      "colsample": 0.6289115355054862,
-      "reg_lambda": 3.0344144376348674,
+      "max_bins": 196,
+      "subsample": 0.8722460870283463,
+      "colsample": 0.9431041059526151,
+      "reg_lambda": 0.19052988129453216,
       "n_screen": 16
     },
     "XGBoost": {
@@ -1026,13 +1026,13 @@
   "house_16H": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 243,
-      "learning_rate": 0.07641345564135726,
+      "n_estimators": 217,
+      "learning_rate": 0.12696425673884237,
       "max_depth": 4,
-      "max_bins": 8,
-      "subsample": 0.854678371162756,
-      "colsample": 0.9105388114256299,
-      "reg_lambda": 0.22074879133664044,
+      "max_bins": 255,
+      "subsample": 0.8664574643038845,
+      "colsample": 0.8208104960302076,
+      "reg_lambda": 0.31548485690186945,
       "n_screen": 16
     },
     "XGBoost": {
@@ -1064,13 +1064,13 @@
   "puma32H": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 299,
-      "learning_rate": 0.05235375520516505,
+      "n_estimators": 288,
+      "learning_rate": 0.110711223576356,
       "max_depth": 4,
-      "max_bins": 19,
-      "subsample": 0.6095674874997126,
-      "colsample": 0.9847653610694833,
-      "reg_lambda": 0.34782367447494683,
+      "max_bins": 22,
+      "subsample": 0.7787117181046455,
+      "colsample": 0.9749571754666725,
+      "reg_lambda": 0.16317327208001173,
       "n_screen": 16
     },
     "XGBoost": {
@@ -1102,13 +1102,13 @@
   "ailerons": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 268,
-      "learning_rate": 0.025747733361862653,
+      "n_estimators": 270,
+      "learning_rate": 0.020308421888984924,
       "max_depth": 3,
-      "max_bins": 25,
-      "subsample": 0.938141463821421,
-      "colsample": 0.8174360607928561,
-      "reg_lambda": 0.1417287273366798,
+      "max_bins": 15,
+      "subsample": 0.9244504651579958,
+      "colsample": 0.8595469889480184,
+      "reg_lambda": 0.18307131907033497,
       "n_screen": 16
     },
     "XGBoost": {
@@ -1178,13 +1178,13 @@
   "cpu_act": {
     "_task": "regression",
     "OQBoost": {
-      "n_estimators": 274,
-      "learning_rate": 0.11878872289518569,
+      "n_estimators": 287,
+      "learning_rate": 0.07804161590796056,
       "max_depth": 4,
-      "max_bins": 192,
-      "subsample": 0.868630938391841,
-      "colsample": 0.7049500440767413,
-      "reg_lambda": 0.2174409069972854,
+      "max_bins": 133,
+      "subsample": 0.7388414527513174,
+      "colsample": 0.8217806401355023,
+      "reg_lambda": 0.8191116967186888,
       "n_screen": 16
     },
     "XGBoost": {
