@@ -40,7 +40,7 @@
 | ☑   | **class_weight**            | 낮     | ✅ 완료. `None/"balanced"/dict` → compute_sample_weight로 변환 후 sample_weight에 결합. 이진/다중클래스.                                                                                                                                                                                           |
 | ☐   | **sparse 입력**             | 중     | scipy sparse `X` 지원 (현재 dense만). 고차원 희소 데이터.                                                                                                                                                                                                                                          |
 | ☐   | **테스트 스위트 / CI 품질** | 중     | pytest 커버리지(엣지: d=1, 단일클래스, 극단값, 직렬화 버전호환), property test. 회귀 방지.                                                                                                                                                                                                         |
-| ☐   | **기본값 튜닝 / 문서**      | 낮     | untuned 성능 좋게 defaults 점검, 사용 예제·노트북.                                                                                                                                                                                                                                                 |
+| ◐   | **기본값 점검 / 문서**      | 낮     | ✅ 기본값 검증 — default-vs-default서 XGB/LGB 상대 분류 5중3·회귀 4중3 최고/동급. 보수적 lr0.06/sub0.8이 소데이터 과적합 방지(bump하면 net-neutral~↓). 변경 불필요. ☐ 사용 예제·노트북 문서는 후속.                                                                                                |
 
 ## 스케일 (장기)
 
