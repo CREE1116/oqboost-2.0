@@ -32,15 +32,15 @@
 알고리즘 코어는 성숙(정확도 = GBDT 패러다임 천장, exotic 트릭 LOB/linear-leaf/ordered 다 ~0.01서 막힘).
 남은 건 **소프트웨어 완성도** — <1주 모델이라 표준 기능·sklearn 준수에 구멍. (2026-06-25 검증)
 
-| #   | 항목                          | 난이도 | 메모                                                                                                          |
-| --- | ----------------------------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| ☑   | **sample_weight**             | 중     | ✅ 완료. `fit(X, y, sample_weight)` → boost_rounds서 g,h에 w 곱(Newton 정확) + 가중 init. 검증: w=1 항등, 극단가중 지배, weighted≈replicated(mean diff ~0.002; 잔차=unweighted binning 2차효과). 다중클래스/회귀/warm-start. |
-| ☑   | **early stopping**            | 중     | ✅ 완료. sklearn GB 관례 — `n_iter_no_change`(patience)/`validation_fraction`/`tol`. fit서 val 홀드아웃, C++ boost_rounds가 라운드별 deviance(logloss/MSE) 모니터·patience 초과시 중단·best로 트리 truncate. `best_iteration_`. 이진/회귀/다중클래스(클래스별 독립). |
-| ☑   | **sklearn 준수**              | 낮~중  | ✅ 완료. `check_estimator` 60/61·57/58 통과. validate_data 통합(n_features_in_·feature_names_in_·predict 일관성), mixin 순서, allow_nan 태그, 연속타깃·y=None·n_samples<2·all-zero weight 에러. 유일 미통과 sample_weight_equivalence는 stochastic binned tree 본질 한계 → 테스트서 expected-fail. |
-| ☐   | **class_weight**              | 낮     | 분류 클래스 가중(sample_weight 위에 구축).                                                                    |
-| ☐   | **sparse 입력**               | 중     | scipy sparse `X` 지원 (현재 dense만). 고차원 희소 데이터.                                                     |
-| ☐   | **테스트 스위트 / CI 품질**   | 중     | pytest 커버리지(엣지: d=1, 단일클래스, 극단값, 직렬화 버전호환), property test. 회귀 방지.                    |
-| ☐   | **기본값 튜닝 / 문서**        | 낮     | untuned 성능 좋게 defaults 점검, 사용 예제·노트북.                                                            |
+| #   | 항목                        | 난이도 | 메모                                                                                                                                                                                                                                                                                               |
+| --- | --------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ☑   | **sample_weight**           | 중     | ✅ 완료. `fit(X, y, sample_weight)` → boost_rounds서 g,h에 w 곱(Newton 정확) + 가중 init. 검증: w=1 항등, 극단가중 지배, weighted≈replicated(mean diff ~0.002; 잔차=unweighted binning 2차효과). 다중클래스/회귀/warm-start.                                                                       |
+| ☑   | **early stopping**          | 중     | ✅ 완료. sklearn GB 관례 — `n_iter_no_change`(patience)/`validation_fraction`/`tol`. fit서 val 홀드아웃, C++ boost*rounds가 라운드별 deviance(logloss/MSE) 모니터·patience 초과시 중단·best로 트리 truncate. `best_iteration*`. 이진/회귀/다중클래스(클래스별 독립).                               |
+| ☑   | **sklearn 준수**            | 낮~중  | ✅ 완료. `check_estimator` 60/61·57/58 통과. validate*data 통합(n_features_in*·feature*names_in*·predict 일관성), mixin 순서, allow_nan 태그, 연속타깃·y=None·n_samples<2·all-zero weight 에러. 유일 미통과 sample_weight_equivalence는 stochastic binned tree 본질 한계 → 테스트서 expected-fail. |
+| ☑   | **class_weight**            | 낮     | ✅ 완료. `None/"balanced"/dict` → compute_sample_weight로 변환 후 sample_weight에 결합. 이진/다중클래스.                                                                                                                                                                                            |
+| ☐   | **sparse 입력**             | 중     | scipy sparse `X` 지원 (현재 dense만). 고차원 희소 데이터.                                                                                                                                                                                                                                          |
+| ☐   | **테스트 스위트 / CI 품질** | 중     | pytest 커버리지(엣지: d=1, 단일클래스, 극단값, 직렬화 버전호환), property test. 회귀 방지.                                                                                                                                                                                                         |
+| ☐   | **기본값 튜닝 / 문서**      | 낮     | untuned 성능 좋게 defaults 점검, 사용 예제·노트북.                                                                                                                                                                                                                                                 |
 
 ## 스케일 (장기)
 

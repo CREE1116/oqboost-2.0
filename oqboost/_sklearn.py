@@ -13,6 +13,7 @@ from sklearn.metrics import balanced_accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.utils.multiclass import check_classification_targets
+from sklearn.utils.class_weight import compute_sample_weight
 
 from . import oqboost_core as _core
 
@@ -77,6 +78,7 @@ class _BaseOQBoost(BaseEstimator):
         clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
         monotone_constraints=None,  # 피처별 단조 제약 리스트 -1/0/+1 (길이=n_features)
         categorical_features=None,  # 범주형 피처 인덱스/마스크 → 무손실 비닝
+        class_weight=None,          # classifier only: None | "balanced" | dict -> sample weights
         max_lineage: int = 0,       # LOB: >0 inherits ancestor directions (composed). 0=classic 2D
         warm_start: bool = False,   # True + higher n_estimators -> add trees to the existing model
         n_iter_no_change=None,      # early stopping: stop after this many rounds w/o val improvement (None=off)
@@ -100,6 +102,7 @@ class _BaseOQBoost(BaseEstimator):
         self.clip = clip
         self.monotone_constraints = monotone_constraints
         self.categorical_features = categorical_features
+        self.class_weight = class_weight
         self.max_lineage = max_lineage
         self.warm_start = warm_start
         self.n_iter_no_change = n_iter_no_change
@@ -285,6 +288,9 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
         check_classification_targets(y)  # reject continuous regression targets
         Xc = np.ascontiguousarray(X, dtype=float)
         sw = self._sw(sample_weight, len(y))
+        if self.class_weight is not None:  # fold class weights into the sample weights
+            cw = compute_sample_weight(self.class_weight, y)
+            sw = cw if sw.size == 0 else sw * cw
         # warm-start: add trees on the same data (n_estimators delta); keep threshold.
         if warm and X.shape[1] == self.n_features_in_:
             if not self._multiclass:
