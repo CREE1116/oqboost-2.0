@@ -16,6 +16,7 @@ from sklearn.utils.multiclass import check_classification_targets
 from sklearn.utils.class_weight import compute_sample_weight
 
 from . import oqboost_core as _core
+from . import _encoders as _enc
 
 # threshold="..." → 최적화 메트릭. proba는 calibrated이므로 0.5가 기본이지만
 # 불균형 데이터에서 balanced accuracy/F1은 다른 cut이 최적.
@@ -183,13 +184,15 @@ class _BaseOQBoost(BaseEstimator):
                 "explain()은 max_lineage=0(기본 2D)만 지원 — LOB의 합성 dense 방향엔 "
                 "경로-가산 귀속이 정의되지 않음.")
         Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
+        cat = getattr(self, "_cat_idx", [])
+        if cat:
+            Xc = _enc.transform(Xc, cat, self._cat_enc)
         return self._booster.explain(Xc)
 
     def _make_booster(self, objective: int):
         if self.loss not in _LOSS:
             raise ValueError(f"loss='{self.loss}' 미지원 ({' | '.join(_LOSS)})")
         mono = self._monotone_list()
-        cat = self._categorical_list()
         return _core.Booster(
             n_estimators=self.n_estimators, learning_rate=self.learning_rate,
             max_depth=self.max_depth, max_bins=self.max_bins,
@@ -198,26 +201,25 @@ class _BaseOQBoost(BaseEstimator):
             colsample=self.colsample, seed=int(self.random_state),
             objective=objective, fast_dir=self.fast_dir,
             loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
-            monotone=mono, categorical=cat, max_lineage=int(self.max_lineage),
+            monotone=mono, categorical=[], max_lineage=int(self.max_lineage),
         )
 
-    def _categorical_list(self):
-        """categorical_features → 길이 n_features의 0/1 마스크(없으면 빈 리스트).
+    def _cat_indices(self):
+        """categorical_features → list of column indices (empty if None).
 
-        인덱스 리스트([2,5]), bool 마스크([F,F,T,...]), 또는 0/1 마스크 허용."""
+        Accepts an index list ([2, 5]) or a boolean mask. These columns are
+        target-encoded in the wrapper (see _encoders); the C++ core treats them
+        as ordinary continuous features afterwards."""
         cf = self.categorical_features
         if cf is None:
             return []
-        d = self.n_features_in_
         arr = np.asarray(cf)
         if arr.dtype == bool:
+            d = self.n_features_in_
             if len(arr) != d:
-                raise ValueError(f"categorical_features bool 마스크 길이 {len(arr)} ≠ {d}")
-            return [int(v) for v in arr]
-        out = [0] * d
-        for i in arr:
-            out[int(i)] = 1          # 인덱스 리스트로 해석
-        return out
+                raise ValueError(f"categorical_features bool mask length {len(arr)} != {d}")
+            return [int(i) for i in np.flatnonzero(arr)]
+        return [int(i) for i in arr]
 
     def _monotone_list(self):
         """monotone_constraints → 길이 n_features의 int 리스트(없으면 빈 리스트).
@@ -302,41 +304,57 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
         if self.class_weight is not None:  # fold class weights into the sample weights
             cw = compute_sample_weight(self.class_weight, y)
             sw = cw if sw.size == 0 else sw * cw
+        cat = self._cat_indices()  # columns to target-encode (per binary target)
         # warm-start: add trees on the same data (n_estimators delta); keep threshold.
         if warm and X.shape[1] == self.n_features_in_:
             if not self._multiclass:
                 extra = self.n_estimators - self._booster.n_trees()
                 if extra > 0:
+                    Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
                     self._booster.fit_more(
-                        Xc, (y == self.classes_[1]).astype(float), extra, sw)
+                        Xt, (y == self.classes_[1]).astype(float), extra, sw)
             else:
-                for cls, b in zip(self.classes_, self._boosters):
+                for k, (cls, b) in enumerate(zip(self.classes_, self._boosters)):
                     extra = self.n_estimators - b.n_trees()
                     if extra > 0:
-                        b.fit_more(Xc, (y == cls).astype(float), extra, sw)
+                        Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
+                        b.fit_more(Xt, (y == cls).astype(float), extra, sw)
             return self
         if X.shape[0] < 2:
             raise ValueError(f"need at least 2 samples to fit, got n_samples={X.shape[0]}")
         self.classes_ = np.unique(y)
+        self._cat_idx = cat
         # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
         if len(self.classes_) < 2:
             raise ValueError("y must contain at least 2 classes")
         tr, va = self._es_split(y, stratify=True)  # early stopping split (or None)
+        seed = int(self.random_state)
         if len(self.classes_) == 2:
             self._multiclass = False
             ybin = (y == self.classes_[1]).astype(float)
+            if cat:
+                Xc, self._cat_enc = _enc.fit_transform(Xc, cat, ybin, True, seed=seed)
+            else:
+                self._cat_enc = None
             self.decision_threshold_ = self._fit_threshold(Xc, ybin)
             self._booster = self._make_booster(objective=0)
             self.best_iteration_ = self._fit_booster(self._booster, Xc, ybin, sw, tr, va)
         else:
-            # one-vs-rest: one binary booster per class
+            # one-vs-rest: one binary booster per class (each with its own encoding)
             self._multiclass = True
             self.decision_threshold_ = 0.5  # multiclass uses argmax, no cut
             self._boosters = []
+            self._cat_enc = []
             bi = []
             for cls in self.classes_:
+                ybin = (y == cls).astype(float)
+                if cat:
+                    Xk, enck = _enc.fit_transform(Xc, cat, ybin, True, seed=seed)
+                else:
+                    Xk, enck = Xc, None
+                self._cat_enc.append(enck)
                 b = self._make_booster(objective=0)
-                bi.append(self._fit_booster(b, Xc, (y == cls).astype(float), sw, tr, va))
+                bi.append(self._fit_booster(b, Xk, ybin, sw, tr, va))
                 self._boosters.append(b)
             self.best_iteration_ = bi if va is not None else -1
         return self
@@ -372,11 +390,16 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
     def predict_proba(self, X):
         check_is_fitted(self, "_multiclass")
         Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
+        cat = getattr(self, "_cat_idx", [])
         if not self._multiclass:
-            return self._booster.predict_proba(Xc)
-        # OvR: 각 부스터의 P(class k) → 행 정규화
-        P = np.column_stack([b.predict_proba(Xc)[:, 1] for b in self._boosters])
-        P = np.clip(P, 1e-12, None)
+            Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
+            return self._booster.predict_proba(Xt)
+        # OvR: P(class k) from each booster (its own encoding) -> row-normalize
+        cols = []
+        for k, b in enumerate(self._boosters):
+            Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
+            cols.append(b.predict_proba(Xt)[:, 1])
+        P = np.clip(np.column_stack(cols), 1e-12, None)
         return P / P.sum(axis=1, keepdims=True)
 
     def predict(self, X):
@@ -426,10 +449,15 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
             raise NotImplementedError(
                 "explain()은 max_lineage=0(기본 2D)만 지원 (LOB 합성 방향 미지원).")
         Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
+        cat = getattr(self, "_cat_idx", [])
         if not self._multiclass:
-            return self._booster.explain(Xc)
-        # OvR: 클래스별 부스터 explain → (n, n_classes, n_features)
-        per = [b.explain(Xc) for b in self._boosters]  # 각 (n, d)
+            Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
+            return self._booster.explain(Xt)
+        # OvR: per-class booster explain (its own encoding) -> (n, n_classes, d)
+        per = []
+        for k, b in enumerate(self._boosters):
+            Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
+            per.append(b.explain(Xt))
         return np.stack(per, axis=1)
 
 
@@ -454,13 +482,20 @@ class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
         Xc = np.ascontiguousarray(X, dtype=float)
         yf = y.astype(float)
         sw = self._sw(sample_weight, len(y))
+        cat = self._cat_indices()
         # warm-start: add trees on the same data (n_estimators delta).
         if warm and X.shape[1] == self.n_features_in_:
             extra = self.n_estimators - self._booster.n_trees()
             if extra > 0:
-                self._booster.fit_more(Xc, yf, extra, sw)
+                Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
+                self._booster.fit_more(Xt, yf, extra, sw)
             return self
         # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
+        self._cat_idx = cat
+        if cat:
+            Xc, self._cat_enc = _enc.fit_transform(Xc, cat, yf, False, seed=int(self.random_state))
+        else:
+            self._cat_enc = None
         self._booster = self._make_booster(objective=1)
         tr, va = self._es_split(yf, stratify=False)
         self.best_iteration_ = self._fit_booster(self._booster, Xc, yf, sw, tr, va)
@@ -468,5 +503,8 @@ class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
 
     def predict(self, X):
         check_is_fitted(self, "_booster")
-        X = _check_X(self, X)
-        return self._booster.predict_raw(np.ascontiguousarray(X, dtype=float))
+        Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
+        cat = getattr(self, "_cat_idx", [])
+        if cat:
+            Xc = _enc.transform(Xc, cat, self._cat_enc)
+        return self._booster.predict_raw(Xc)

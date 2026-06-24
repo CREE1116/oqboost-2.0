@@ -1,7 +1,8 @@
 # Categorical features
 
-Pass `categorical_features` (column indices or a boolean mask) to give those
-columns **lossless binning** — one histogram bin per level, ignoring `max_bins`.
+Pass `categorical_features` (column indices or a boolean mask) to **target-encode**
+those columns: each level is replaced by a cross-fitted estimate of the target
+conditioned on that level.
 
 ```python
 clf = OQBoostClassifier(categorical_features=[0, 4]).fit(X, y)
@@ -12,24 +13,40 @@ clf = OQBoostClassifier(categorical_features=[True, False, False, False, True]).
 Encode categories as **integer codes** (`0..K-1`) before fitting (e.g. with
 `sklearn.preprocessing.OrdinalEncoder`).
 
-## Why a flag is needed
+## Why target encoding (and not one-hot / lossless bins)
 
-Without the flag, integer codes are binned like continuous values via quantiles.
-When cardinality exceeds `max_bins`, distinct levels get merged into the same bin
-— a lossless-to-lossy collapse that destroys high-cardinality categorical signal.
-Marking the column forces one bin per level, so no merging occurs while continuous
-features keep their low-resolution (direction-stable) binning.
+An oblique split `a·cat + b·cont < t` imposes a **linear order** on the category
+codes. Nominal codes have no meaningful order, so a split on raw codes is
+useless. Target encoding orders the levels by their effect on the target, which
+makes `a·TE(cat)` a meaningful axis **and** lets `a·TE(cat) + b·cont` capture
+genuine category×continuous interactions — exactly what the oblique core is good
+at. On high-cardinality signal this is a large, reproducible win (synthetic
+card-100: +0.16 AUC binary, +0.56 R² regression, +0.24 accuracy multiclass over
+raw codes).
 
-## Known limitation (status: under revision)
+This is why OQBoost target-encodes rather than one-hot encoding or lossless
+binning: target encoding helps oblique splits *more* than it helps axis-aligned
+trees (which can set-partition a category and so need the ordering less).
 
-> The lossless-binning benefit has **weakened** since 1D-split competition was
-> removed from the core. Isolating a single category level cleanly wants a 1D
-> axis threshold (a cut between two adjacent codes); with the 2D-only search a
-> category is paired with a continuous feature, which dilutes the isolation.
+## How it works
 
-Restoring 1D competition is not the intended fix (it complicates the core). A
-dedicated categorical-encoding strategy (out-of-fold / ordered target statistics,
-or an oblique-aware encoding) is the planned direction — see the
-[roadmap](../internals/roadmap.md). For now, `categorical_features` still helps on
-genuinely high-cardinality columns but less than it once did; on low-cardinality
-nominal data the effect is small either way.
+- **Empirical-Bayes "auto" smoothing** (Micci-Barreca): rare levels are shrunk
+  toward the global target mean by their count, so low-support levels don't
+  overfit. No tuning knob.
+- **Cross-fitted** (5-fold) at training time so a row's encoding never uses its
+  own target — this prevents leakage. At predict time the full-train level map is
+  applied; unseen levels fall back to the global mean.
+- The numeric kernel (fold assignment, level statistics, smoothing) is implemented
+  in C++; the encoding is fit once and reused at predict.
+
+## Tasks
+
+- **Binary / regression**: one encoded column per categorical, computed against
+  the target.
+- **Multiclass** (one-vs-rest): each per-class booster encodes the column against
+  its own binary target, so every booster sees a category ordering tuned to the
+  class it separates.
+
+Feature layout is unchanged (columns are replaced in place), so
+`feature_importances_`, `explain`, and `monotone_constraints` keep referring to
+the original feature indices.

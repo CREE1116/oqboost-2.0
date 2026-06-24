@@ -24,7 +24,7 @@ from oqboost import OQBoostClassifier
 | `threshold` | `"0.5"` | binary decision cut — `"balanced"` / `"f1"` tune it on a holdout |
 | `class_weight` | `None` | `"balanced"` or `{class: weight}` dict |
 | `monotone_constraints` | `None` | per-feature monotonicity, list of `-1/0/+1` or `{idx: dir}` — see [guide](../guides/monotonic.md) |
-| `categorical_features` | `None` | indices / bool mask → lossless binning — see [guide](../guides/categorical.md) |
+| `categorical_features` | `None` | indices / bool mask → cross-fitted target encoding — see [guide](../guides/categorical.md) |
 | `max_lineage` | 0 | LOB (experimental) — see [internals/lob](../internals/lob.md) |
 | `warm_start` | `False` | add trees incrementally — see [guide](../guides/warm_start.md) |
 | `n_iter_no_change` | `None` | early stopping patience — see [guide](../guides/early_stopping.md) |

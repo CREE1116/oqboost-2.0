@@ -39,9 +39,9 @@ Robust regression losses (`huber`, `quantile`) clip or sign the gradient and, fo
 
 Features are globally pre-binned into `max_bins` quantile bins once. Keep
 `max_bins` small (default 16) — the oblique direction is stable at low resolution,
-and small bins keep the pair search cheap. `categorical_features` overrides this
-with lossless per-level binning ([guide](../guides/categorical.md)). `NaN` is
-routed to a dedicated learned bin.
+and small bins keep the pair search cheap. `NaN` is routed to a dedicated learned
+bin. Categorical columns marked via `categorical_features` are target-encoded
+first (so the oblique split sees a meaningful ordering — [guide](../guides/categorical.md)).
 
 ## Higher-order interactions
 
@@ -58,7 +58,8 @@ Earlier versions let a 1D axis split compete with the 2D oblique split per node.
 Measurement showed 2D subsumes 1D (a 2D split with `b ≈ 0` *is* a 1D split): mean
 ΔAUC of removing the competition was −0.0003 across the binary suite. The 1D path
 is kept only as a fallback for degenerate nodes where the 2D search finds no
-split. (One regression from this: it weakened `categorical_features` — see the
+split. (This once weakened `categorical_features`, which is now resolved by
+target-encoding categoricals instead of relying on 1D isolation — see the
 [categorical guide](../guides/categorical.md).)
 
 ## Threading

@@ -160,18 +160,45 @@ def test_explain_multiclass_shape():
     assert m.explain(X[:5]).shape == (5, 3, 4)
 
 
-@pytest.mark.parametrize("cf", [[0], [True, False, False], np.array([0])])
-def test_categorical_features_runs(cf):
-    # lossless binning for the marked column; smoke + valid output (AUC benefit is
-    # data-dependent and modest post-1D-removal — see categorical-binning notes).
-    rng = np.random.default_rng(0)
-    n = 800
-    code = rng.integers(0, 30, n)
-    X = np.column_stack([code.astype(float), rng.normal(size=n), rng.normal(size=n)])
+@pytest.mark.parametrize("cf", [[0], [True, False], np.array([0])])
+def test_categorical_features_accepts_formats(cf):
+    # index list / bool mask / array all resolve to the same column
+    rng = np.random.default_rng(0); n = 600
+    X = np.column_stack([rng.integers(0, 20, n).astype(float), rng.normal(size=n)])
     y = (rng.random(n) < 0.5).astype(int)
-    m = OQBoostClassifier(n_estimators=30, categorical_features=cf, random_state=0).fit(X, y)
+    m = OQBoostClassifier(n_estimators=20, categorical_features=cf, random_state=0).fit(X, y)
     p = m.predict_proba(X)
     assert p.shape == (n, 2) and np.isfinite(p).all()
+
+
+def test_categorical_target_encoding_gain():
+    # high-cardinality (100 > max_bins) category as signal: target encoding (the
+    # categorical_features path) should recover the signal a linear oblique split
+    # can't read from raw codes. Big, reproducible gain.
+    rng = np.random.default_rng(0); n, card = 8000, 100
+    offs = rng.normal(0, 2.5, card); code = rng.integers(0, card, n); c1 = rng.normal(size=n)
+    logit = offs[code] + 0.4 * c1 + 0.5 * (offs[code] > 0) * c1
+    y = (rng.random(n) < 1 / (1 + np.exp(-logit))).astype(int)
+    X = np.column_stack([code.astype(float), c1])
+    Xtr, Xte, ytr, yte = X[:6000], X[6000:], y[:6000], y[6000:]
+    a_raw = roc_auc_score(yte, OQBoostClassifier(n_estimators=200, random_state=0)
+                          .fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    a_te = roc_auc_score(yte, OQBoostClassifier(n_estimators=200, categorical_features=[0],
+                         random_state=0).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+    assert a_te > a_raw + 0.08
+
+
+def test_categorical_predict_no_leak():
+    # cross-fitted encoding -> held-out score must stay realistic (not ~1.0)
+    rng = np.random.default_rng(1); n, card = 4000, 80
+    offs = rng.normal(0, 2, card); code = rng.integers(0, card, n)
+    X = np.column_stack([code.astype(float), rng.normal(size=n)])
+    y = (rng.random(n) < 1 / (1 + np.exp(-offs[code]))).astype(int)
+    Xtr, Xte, ytr, yte = X[:3000], X[3000:], y[:3000], y[3000:]
+    m = OQBoostClassifier(n_estimators=150, categorical_features=[0], random_state=0).fit(Xtr, ytr)
+    train_auc = roc_auc_score(ytr, m.predict_proba(Xtr)[:, 1])
+    test_auc = roc_auc_score(yte, m.predict_proba(Xte)[:, 1])
+    assert test_auc > 0.6 and train_auc - test_auc < 0.15  # no leak blowup
 
 
 # ── edge cases ──────────────────────────────────────────────────────────────
