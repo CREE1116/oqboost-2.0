@@ -180,8 +180,11 @@ phi = clf.explain(X)           # (n, n_features) additive per-sample contributio
 prediction minus the base score — so it lines up directly with `shap` values
 from other models, while `interaction_importances_` reads off the pairwise
 structure the oblique splits actually learned (at zero extra cost). `explain(X)`
-covers binary classification and regression; for multiclass (one-vs-rest) the
-per-class attribution is ambiguous, so it is not provided there.
+returns `(n, n_features)` for binary classification and regression, and
+`(n, n_classes, n_features)` for multiclass — `[:, k, :]` are the additive
+contributions to class `k`'s one-vs-rest score. (`explain` is unavailable when
+`max_lineage>0`, since LOB's composed dense directions have no path-additive
+attribution.)
 
 `oqboost.plot` renders these with matplotlib (no `shap` dependency):
 
@@ -240,6 +243,7 @@ joblib.dump(clf, "clf.joblib")
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list of length `n_features` or `{idx: dir}` dict) — enforced through the oblique splits |
 | `warm_start`           | `False`     | reuse existing trees and only add the new ones when `n_estimators` grows (incremental training)                                 |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (one bin per level, ignoring `max_bins`)                          |
+| `max_lineage`          | 0           | **LOB** (experimental): if `>0`, a node inherits ancestor split directions so `(z, x)` / `(z, z)` pairs enter the 2D search — oblique directions compose hierarchically. 0 = classic 2D. Pair with `n_screen` to bound the candidate pool. |
 
 ---
 

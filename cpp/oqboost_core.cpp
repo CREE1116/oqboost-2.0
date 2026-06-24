@@ -153,7 +153,8 @@ struct Node {
   double thr = 0, coefA = 0, coefB = 0, bias = 0;
   int left = -1, right = -1;
   int nan_direction = 0;
-  double gain = 0;  // 채택 분할 gain (explain 경로 귀속용)
+  double gain = 0;   // 채택 분할 gain (explain 경로 귀속용)
+  int dir_id = -1;   // LOB: ≥0이면 dense 방향(dirs_[dir_id]) 기반 분할
 };
 struct Params {
   int n_estimators = 60, max_depth = 4, max_bins = 64, min_samples = 10;
@@ -171,6 +172,9 @@ struct Params {
   std::vector<int> monotone;
   // 피처별 범주형 플래그(1=범주형 → 무손실 비닝). 비면 전부 연속.
   std::vector<int> categorical;
+  // LOB(Lineage Oblique Boosting): >0이면 조상이 발견한 방향을 상속해 (z,raw),
+  // (z,z) 쌍도 탐색 → 방향이 계층 합성. 0=off(기존 2D-pair). 값=lineage 최대 보유수.
+  int max_lineage = 0;
 };
 
 // ─── 단일 히스토그램 해상도 (전역 사전 binning과 2D 투영 threshold 스캔이
@@ -723,9 +727,12 @@ static int build(std::vector<Node>& arena, const double* X, int d,
     gn[i] = g[idx[i]];
     hn[i] = h[idx[i]];
   }
-  Split s1 = eval_1d(C, centers, gn, hn, Gp, Hp, P);
-  Split s2 = eval_2d(C, centers, has_nan, gn, hn, Gp, Hp, P);
-  Split bs = (s2.gain >= s1.gain) ? s2 : s1;
+  // 2D 사선이 주 분할. 1D는 경쟁 제거(측정상 mean Δ −0.0003) — 2D가 b≈0으로
+  // 1D를 표현하므로 중복. eval_1d는 2D가 아무 분할도 못 찾은 퇴화 노드(피처<2 등)
+  // 에서만 폴백으로 사용.
+  Split bs = eval_2d(C, centers, has_nan, gn, hn, Gp, Hp, P);
+  if (bs.gain <= 1e-6 || bs.type == 0)
+    bs = eval_1d(C, centers, gn, hn, Gp, Hp, P);
   if (bs.gain <= 1e-6 || bs.type == 0) return ni;
 
   std::vector<int> li, ri;
@@ -811,37 +818,33 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   return ni;
 }
 
-static inline double predict_one(const std::vector<Node>& A, const double* x) {
+// LOB dense 방향 분할의 child 선택. s = dot(dir,x)+bias, s<0 → left(0).
+// NaN 관련 피처(coef≠0)가 있으면 nan_direction. (coef=0 피처의 NaN은 무시.)
+static inline int lob_child(const Node& nd,
+                            const std::vector<std::vector<double>>& dirs,
+                            const double* x) {
+  const std::vector<double>& c = dirs[nd.dir_id];
+  double s = nd.bias;
+  for (size_t k = 0; k < c.size(); k++) {
+    if (c[k] != 0.0) {
+      double v = x[k];
+      if (std::isnan(v)) return nd.nan_direction;
+      s += c[k] * v;
+    }
+  }
+  return (s < 0) ? 0 : 1;
+}
+
+static inline double predict_one(const std::vector<Node>& A, const double* x,
+                                 const std::vector<std::vector<double>>& dirs) {
   int ni = 0;
   while (true) {
     const Node& nd = A[ni];
     if (nd.is_leaf) return nd.weight;
     int ch;
-    if (nd.type == 1) {
-      if (std::isnan(x[nd.fA]))
-        ch = nd.nan_direction;
-      else
-        ch = (x[nd.fA] < nd.thr) ? 0 : 1;
-    } else {
-      if (std::isnan(x[nd.fA]) || std::isnan(x[nd.fB])) {
-        ch = nd.nan_direction;
-      } else {
-        double s = nd.coefA * x[nd.fA] + nd.coefB * x[nd.fB] + nd.bias;
-        ch = (s < 0) ? 0 : 1;
-      }
-    }
-    ni = (ch == 0) ? nd.left : nd.right;
-  }
-}
-
-// 표본이 도달하는 leaf의 arena 인덱스 (leaf-value line-search용).
-static inline int leaf_index(const std::vector<Node>& A, const double* x) {
-  int ni = 0;
-  while (true) {
-    const Node& nd = A[ni];
-    if (nd.is_leaf) return ni;
-    int ch;
-    if (nd.type == 1) {
+    if (nd.dir_id >= 0) {
+      ch = lob_child(nd, dirs, x);
+    } else if (nd.type == 1) {
       ch = std::isnan(x[nd.fA]) ? nd.nan_direction : (x[nd.fA] < nd.thr ? 0 : 1);
     } else if (std::isnan(x[nd.fA]) || std::isnan(x[nd.fB])) {
       ch = nd.nan_direction;
@@ -851,6 +854,52 @@ static inline int leaf_index(const std::vector<Node>& A, const double* x) {
     }
     ni = (ch == 0) ? nd.left : nd.right;
   }
+}
+
+// 표본이 도달하는 leaf의 arena 인덱스 (leaf-value line-search용).
+static inline int leaf_index(const std::vector<Node>& A, const double* x,
+                             const std::vector<std::vector<double>>& dirs) {
+  int ni = 0;
+  while (true) {
+    const Node& nd = A[ni];
+    if (nd.is_leaf) return ni;
+    int ch;
+    if (nd.dir_id >= 0) {
+      ch = lob_child(nd, dirs, x);
+    } else if (nd.type == 1) {
+      ch = std::isnan(x[nd.fA]) ? nd.nan_direction : (x[nd.fA] < nd.thr ? 0 : 1);
+    } else if (std::isnan(x[nd.fA]) || std::isnan(x[nd.fB])) {
+      ch = nd.nan_direction;
+    } else {
+      double s = nd.coefA * x[nd.fA] + nd.coefB * x[nd.fB] + nd.bias;
+      ch = (s < 0) ? 0 : 1;
+    }
+    ni = (ch == 0) ? nd.left : nd.right;
+  }
+}
+
+// LOB: 두 투영 U,V에 H-가중 gradient 회귀 2×2 → (ca,cb) 비정규화 방향.
+static bool solve_dir2x2(const double* U, const double* V, const double* gn,
+                         const double* hn, int n, double lam,
+                         double& ca, double& cb) {
+  double Sh = 0, Sa = 0, Sb = 0, Saa = 0, Sab = 0, Sbb = 0, Sat = 0, Sbt = 0, St = 0;
+  for (int i = 0; i < n; i++) {
+    double u = U[i], v = V[i];
+    if (std::isnan(u) || std::isnan(v)) continue;
+    double gi = gn[i], hi = hn[i];
+    Sh += hi; Sa += hi * u; Sb += hi * v;
+    Saa += hi * u * u; Sab += hi * u * v; Sbb += hi * v * v;
+    Sat += -gi * u; Sbt += -gi * v; St += -gi;
+  }
+  if (Sh < 1e-12) return false;
+  double A00 = Saa - Sa * Sa / Sh + lam, A01 = Sab - Sa * Sb / Sh,
+         A11 = Sbb - Sb * Sb / Sh + lam;
+  double b0 = Sat - Sa * St / Sh, b1 = Sbt - Sb * St / Sh;
+  double det = A00 * A11 - A01 * A01;
+  if (std::fabs(det) < 1e-12) return false;
+  ca = (A11 * b0 - A01 * b1) / det;
+  cb = (A00 * b1 - A01 * b0) / det;
+  return true;
 }
 
 // 가중 없는 분위수 (in-place nth_element).
@@ -872,11 +921,12 @@ class Booster {
   std::vector<double> importances_;  // 피처별 누적 gain
   std::vector<double> coef_imp_;     // Σ gain·|coef| (계수 가중 importance)
   std::vector<double> inter_;        // d×d 상삼각: Σ gain·|a|·|b| (사선쌍 interaction)
+  std::vector<std::vector<double>> dirs_;  // LOB dense 방향 테이블 (node.dir_id 참조)
   Booster(int n_estimators, double learning_rate, int max_depth, int max_bins,
           double reg_lambda, int min_samples, int n_screen, double subsample,
           double colsample, unsigned seed, int objective, int fast_dir,
           int loss, double alpha, int clip, std::vector<int> monotone,
-          std::vector<int> categorical) {
+          std::vector<int> categorical, int max_lineage) {
     P.n_estimators = n_estimators;
     P.learning_rate = learning_rate;
     P.max_depth = max_depth;
@@ -894,6 +944,7 @@ class Booster {
     P.clip = clip;
     P.monotone = std::move(monotone);
     P.categorical = std::move(categorical);
+    P.max_lineage = max_lineage;
   }
 
   void fit(py::array_t<double, py::array::c_style | py::array::forcecast> Xa,
@@ -932,6 +983,7 @@ class Booster {
     importances_.assign(d, 0.0);
     coef_imp_.assign(d, 0.0);
     inter_.assign((size_t)d * d, 0.0);
+    dirs_.clear();
     rng_.seed(P.seed);
     boost_rounds(X, y, n, d, B, raw, P.n_estimators);
   }
@@ -954,7 +1006,7 @@ class Booster {
 #pragma omp parallel for if (n > 2000)
     for (int i = 0; i < n; i++) {
       const double* x = X + (size_t)i * d;
-      for (auto& tr : trees) raw[i] += P.learning_rate * predict_one(tr, x);
+      for (auto& tr : trees) raw[i] += P.learning_rate * predict_one(tr, x, dirs_);
     }
     if ((int)importances_.size() != d) importances_.assign(d, 0.0);
     trees.reserve(trees.size() + extra);
@@ -1015,17 +1067,22 @@ class Booster {
         rows = all;
       std::vector<Node> arena;
       arena.reserve(256);
-      build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng_,
-            importances_, coef_imp_, inter_,
-            -std::numeric_limits<double>::infinity(),
-            std::numeric_limits<double>::infinity());
+      if (P.max_lineage > 0)
+        build_lob(arena, X, d, g, h, rows, {}, 0,
+                  -std::numeric_limits<double>::infinity(),
+                  std::numeric_limits<double>::infinity());
+      else
+        build(arena, X, d, B.idx, B.centers, B.has_nan, g, h, rows, 0, P, rng_,
+              importances_, coef_imp_, inter_,
+              -std::numeric_limits<double>::infinity(),
+              std::numeric_limits<double>::infinity());
 
       // quantile: gradient는 부호뿐(±α)이라 -G/H leaf 값이 무의미 → 트리 구조는
       // gradient로 만들되 leaf 값을 멤버 residual의 alpha-분위로 line-search.
       if (P.objective == 1 && P.loss == 2) {
         std::vector<std::vector<double>> res(arena.size());
         for (int i : rows)
-          res[leaf_index(arena, X + (size_t)i * d)].push_back(y[i] - raw[i]);
+          res[leaf_index(arena, X + (size_t)i * d, dirs_)].push_back(y[i] - raw[i]);
         for (size_t li = 0; li < arena.size(); li++)
           if (arena[li].is_leaf && !res[li].empty())
             arena[li].weight = quantile_inplace(res[li], P.alpha);
@@ -1033,9 +1090,112 @@ class Booster {
 
 #pragma omp parallel for if (n > 2000)
       for (int i = 0; i < n; i++)
-        raw[i] += P.learning_rate * predict_one(arena, X + (size_t)i * d);
+        raw[i] += P.learning_rate * predict_one(arena, X + (size_t)i * d, dirs_);
       trees.push_back(std::move(arena));
     }
+  }
+
+  // ─── LOB 빌드: 조상 방향(lineage)을 상속해 (raw,raw)/(z,raw)/(z,z) 2D 탐색.
+  // 각 분할은 여전히 2×2. 채택 방향은 dense coef로 합성되어 dirs_에 저장되고
+  // 자식 lineage로 전달(최대 P.max_lineage개). root=전수, 깊은노드=SIS 스크리닝.
+  int build_lob(std::vector<Node>& arena, const double* X, int d,
+                const std::vector<double>& g, const std::vector<double>& h,
+                std::vector<int> idx, std::vector<std::vector<double>> lineage,
+                int depth, double lo, double hi) {
+    double Gp = 0, Hp = 0;
+    for (int i : idx) { Gp += g[i]; Hp += h[i]; }
+    int ni = (int)arena.size();
+    arena.push_back(Node());
+    double w = -Gp / (Hp + P.reg_lambda);
+    arena[ni].weight = w < lo ? lo : (w > hi ? hi : w);
+    int nloc = (int)idx.size();
+    if (depth >= P.max_depth || nloc < P.min_samples) return ni;
+
+    std::vector<double> gn(nloc), hn(nloc);
+    for (int t = 0; t < nloc; t++) { gn[t] = g[idx[t]]; hn[t] = h[idx[t]]; }
+
+    // raw 후보: root는 전수, 깊은 노드는 SIS top-n_screen (검증된 root-exhaustive 전략)
+    std::vector<int> feats;
+    if (depth == 0) { feats.resize(d); std::iota(feats.begin(), feats.end(), 0); }
+    else feats = screen(X, d, idx, g, P.n_screen);
+
+    int K = (int)lineage.size();
+    std::vector<std::vector<double>> zproj(K, std::vector<double>(nloc));
+    for (int k = 0; k < K; k++)
+      for (int t = 0; t < nloc; t++) {
+        const double* x = X + (size_t)idx[t] * d;
+        double s = 0; const std::vector<double>& c = lineage[k];
+        for (int j = 0; j < d; j++) if (c[j] != 0.0) s += c[j] * x[j];
+        zproj[k][t] = s;
+      }
+    // 후보 소스: (0,raw_f) 또는 (1,lineage_k)
+    std::vector<std::pair<int, int>> src;
+    for (int f : feats) src.push_back({0, f});
+    for (int k = 0; k < K; k++) src.push_back({1, k});
+    int S = (int)src.size();
+
+    std::vector<double> U(nloc), V(nloc), proj(nloc);
+    auto fill = [&](std::pair<int, int> s, std::vector<double>& out) {
+      if (s.first == 0) for (int t = 0; t < nloc; t++) out[t] = X[(size_t)idx[t] * d + s.second];
+      else out = zproj[s.second];
+    };
+    auto coefof = [&](std::pair<int, int> s) {
+      std::vector<double> c(d, 0.0);
+      if (s.first == 0) c[s.second] = 1.0; else c = lineage[s.second];
+      return c;
+    };
+    Workspace ws;
+    double bestg = 0, best_t = 0; std::vector<double> best_cz, best_proj;
+    for (int a = 0; a < S; a++) {
+      fill(src[a], U);
+      for (int b = a + 1; b < S; b++) {
+        fill(src[b], V);
+        double ca, cb;
+        if (!solve_dir2x2(U.data(), V.data(), gn.data(), hn.data(), nloc, P.reg_lambda, ca, cb))
+          continue;
+        std::vector<double> cu = coefof(src[a]), cv = coefof(src[b]);
+        std::vector<double> cz(d); double nrm = 0;
+        for (int j = 0; j < d; j++) { cz[j] = ca * cu[j] + cb * cv[j]; nrm += cz[j] * cz[j]; }
+        nrm = std::sqrt(nrm);
+        if (nrm < 1e-12) continue;
+        bool hasnan = false;
+        for (int t = 0; t < nloc; t++) {
+          proj[t] = (ca * U[t] + cb * V[t]) / nrm;
+          if (std::isnan(proj[t])) hasnan = true;
+        }
+        double t_thr, gn2;
+        if (!refine_threshold(proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp,
+                              t_thr, gn2, hasnan, ws))
+          continue;
+        if (gn2 > bestg) {
+          for (int j = 0; j < d; j++) cz[j] /= nrm;
+          bestg = gn2; best_t = t_thr; best_cz = cz; best_proj = proj;
+        }
+      }
+    }
+    if (bestg <= 1e-6) return ni;
+    std::vector<int> li, ri;
+    for (int t = 0; t < nloc; t++) {
+      bool left = std::isnan(best_proj[t]) ? false : (best_proj[t] < best_t);
+      (left ? li : ri).push_back(idx[t]);
+    }
+    if (li.empty() || ri.empty()) return ni;
+    for (int j = 0; j < d; j++)
+      if (best_cz[j] != 0.0) {
+        double c = bestg * std::fabs(best_cz[j]);
+        importances_[j] += c; coef_imp_[j] += c;
+      }
+    int did = (int)dirs_.size(); dirs_.push_back(best_cz);
+    arena[ni].dir_id = did; arena[ni].is_leaf = false;
+    arena[ni].gain = bestg; arena[ni].bias = -best_t; arena[ni].nan_direction = 1;
+    std::vector<std::vector<double>> clin = lineage;
+    clin.push_back(best_cz);
+    if ((int)clin.size() > P.max_lineage)
+      clin.erase(clin.begin(), clin.begin() + (clin.size() - P.max_lineage));
+    int L = build_lob(arena, X, d, g, h, std::move(li), clin, depth + 1, lo, hi);
+    int R = build_lob(arena, X, d, g, h, std::move(ri), clin, depth + 1, lo, hi);
+    arena[ni].left = L; arena[ni].right = R;
+    return ni;
   }
 
   std::mt19937 rng_;  // fit/fit_more 연속 사용 (warm-start 시 subsample 시퀀스 이어짐)
@@ -1052,7 +1212,7 @@ class Booster {
     for (int i = 0; i < n; i++) {
       double r = init_score;
       const double* x = X + (size_t)i * d;
-      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x);
+      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x, dirs_);
       if (P.clip) r = r < y_lo ? y_lo : (r > y_hi ? y_hi : r);
       op[i] = r;
     }
@@ -1072,7 +1232,7 @@ class Booster {
     for (int i = 0; i < n; i++) {
       double r = init_score;
       const double* x = X + (size_t)i * d;
-      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x);
+      for (auto& tr : trees) r += P.learning_rate * predict_one(tr, x, dirs_);
       double p = 1.0 / (1.0 + std::exp(-r));
       op[i * 2] = 1 - p;
       op[i * 2 + 1] = p;
@@ -1137,7 +1297,9 @@ class Booster {
         while (!tr[ni].is_leaf) {
           const Node& nd = tr[ni];
           int ch;
-          if (nd.type == 1) {
+          if (nd.dir_id >= 0) {           // LOB: 라우팅만 (귀속은 Python서 차단)
+            ch = lob_child(nd, dirs_, x);
+          } else if (nd.type == 1) {
             bool nan = std::isnan(x[nd.fA]);
             ch = nan ? nd.nan_direction : (x[nd.fA] < nd.thr ? 0 : 1);
             if (!nan && np < cap) { pf[np] = nd.fA; pr[np] = nd.gain; tot += nd.gain; np++; }
@@ -1190,6 +1352,14 @@ class Booster {
       wr(&nn, sizeof(int));
       if (nn) wr(tr.data(), (size_t)nn * sizeof(Node));
     }
+    // LOB dense 방향 테이블
+    int nd = (int)dirs_.size();
+    wr(&nd, sizeof(int));
+    for (auto& v : dirs_) {
+      int vs = (int)v.size();
+      wr(&vs, sizeof(int));
+      if (vs) wr(v.data(), (size_t)vs * sizeof(double));
+    }
     return py::bytes(buf);
   }
 
@@ -1227,6 +1397,15 @@ class Booster {
       trees[t].resize(nn);
       if (nn) rd(trees[t].data(), (size_t)nn * sizeof(Node));
     }
+    int nd;
+    rd(&nd, sizeof(int));
+    dirs_.assign(nd, {});
+    for (int t = 0; t < nd; t++) {
+      int vs;
+      rd(&vs, sizeof(int));
+      dirs_[t].resize(vs);
+      if (vs) rd(dirs_[t].data(), (size_t)vs * sizeof(double));
+    }
   }
 };
 
@@ -1234,7 +1413,7 @@ PYBIND11_MODULE(oqboost_core, m) {
   py::class_<Booster>(m, "Booster")
       .def(py::init<int, double, int, int, double, int, int, double, double,
                     unsigned, int, int, int, double, int, std::vector<int>,
-                    std::vector<int>>(),
+                    std::vector<int>, int>(),
            py::arg("n_estimators") = 60, py::arg("learning_rate") = 0.12,
            py::arg("max_depth") = 4, py::arg("max_bins") = 64,
            py::arg("reg_lambda") = 1.0, py::arg("min_samples") = 10,
@@ -1243,7 +1422,8 @@ PYBIND11_MODULE(oqboost_core, m) {
            py::arg("objective") = 0, py::arg("fast_dir") = 0,
            py::arg("loss") = 0, py::arg("alpha") = 0.9, py::arg("clip") = 0,
            py::arg("monotone") = std::vector<int>{},
-           py::arg("categorical") = std::vector<int>{})
+           py::arg("categorical") = std::vector<int>{},
+           py::arg("max_lineage") = 0)
       .def("fit", &Booster::fit)
       .def("fit_more", &Booster::fit_more)
       .def("n_trees", &Booster::n_trees)

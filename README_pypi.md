@@ -82,8 +82,9 @@ joblib.dump(clf, "clf.joblib")
 clf.feature_importances_         # Σ gain per feature
 clf.coefficient_importances_     # Σ gain·|coef| (direction-weighted)
 clf.interaction_importances_     # d×d matrix, Σ gain·|a|·|b| — learned feature pairs
-phi = clf.explain(X_test)        # (n, n_features) additive contributions — binary / regression
-                                 # phi.sum(axis=1) == raw prediction − base (like SHAP)
+phi = clf.explain(X_test)        # additive contributions — (n, n_features) for binary/
+                                 # regression, (n, n_classes, n_features) for multiclass
+                                 # phi.sum(axis=-1) == raw score − base (like SHAP)
 
 # Plots (pip install oqboost[plot])
 import oqboost.plot as oqp
@@ -112,6 +113,7 @@ oqp.plot_explanation_summary(clf, X) # SHAP-style beeswarm
 | `monotone_constraints` | `None`      | per-feature monotonicity `-1`/`0`/`+1` (list or `{idx: dir}` dict)                |
 | `warm_start`           | `False`     | add trees on top of the existing model when `n_estimators` grows (incremental)     |
 | `categorical_features` | `None`      | indices / bool mask of categorical columns → lossless binning (no level merging)  |
+| `max_lineage`          | 0           | LOB (experimental): `>0` lets nodes inherit ancestor directions (`(z,x)`/`(z,z)` pairs) — composes oblique directions across depth. 0 = classic 2D |
 
 ## Why oblique
 

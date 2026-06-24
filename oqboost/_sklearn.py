@@ -60,6 +60,7 @@ class _BaseOQBoost(BaseEstimator):
         clip: bool = False,      # 예측을 train 타깃 범위로 clamp (회귀기만)
         monotone_constraints=None,  # 피처별 단조 제약 리스트 -1/0/+1 (길이=n_features)
         categorical_features=None,  # 범주형 피처 인덱스/마스크 → 무손실 비닝
+        max_lineage: int = 0,       # LOB: >0이면 조상 방향 상속(계층 합성). 0=기존 2D
         warm_start: bool = False,   # True+n_estimators↑ 시 기존 트리에 추가 학습
         random_state: int = 42,
     ):
@@ -79,6 +80,7 @@ class _BaseOQBoost(BaseEstimator):
         self.clip = clip
         self.monotone_constraints = monotone_constraints
         self.categorical_features = categorical_features
+        self.max_lineage = max_lineage
         self.warm_start = warm_start
         self.random_state = random_state
 
@@ -130,6 +132,10 @@ class _BaseOQBoost(BaseEstimator):
         경유한 경로의 분할만 사용 → "왜 이 예측이 나왔는가"에 직접 답한다.
         양수는 예측을 끌어올린 피처, 음수는 끌어내린 피처."""
         check_is_fitted(self, "_booster")
+        if int(self.max_lineage) > 0:
+            raise NotImplementedError(
+                "explain()은 max_lineage=0(기본 2D)만 지원 — LOB의 합성 dense 방향엔 "
+                "경로-가산 귀속이 정의되지 않음.")
         Xc = np.ascontiguousarray(_check_X(X), dtype=float)
         return self._booster.explain(Xc)
 
@@ -146,7 +152,7 @@ class _BaseOQBoost(BaseEstimator):
             colsample=self.colsample, seed=int(self.random_state),
             objective=objective, fast_dir=self.fast_dir,
             loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
-            monotone=mono, categorical=cat,
+            monotone=mono, categorical=cat, max_lineage=int(self.max_lineage),
         )
 
     def _categorical_list(self):
@@ -304,13 +310,22 @@ class OQBoostClassifier(_BaseOQBoost, ClassifierMixin):
         return self._avg_norm("interaction_importances")
 
     def explain(self, X):
+        """표본별 피처 기여.
+
+        이진: (n, n_features) — class-1 logit 기여.
+        다중클래스(OvR): (n, n_classes, n_features) — `[:, k, :]`가 class-k의
+        one-vs-rest logit에 대한 가산적 기여(각 클래스 부스터의 explain). 클래스별로
+        "왜 이 클래스 점수가 이렇게 나왔나"를 답한다."""
         check_is_fitted(self, "_multiclass")
-        if self._multiclass:
+        if int(self.max_lineage) > 0:
             raise NotImplementedError(
-                "explain()은 이진 분류·회귀 전용 (다중클래스 OvR은 클래스별 "
-                "부스터라 단일 귀속이 모호). 클래스별로 풀려면 OvR 부스터를 직접 사용.")
+                "explain()은 max_lineage=0(기본 2D)만 지원 (LOB 합성 방향 미지원).")
         Xc = np.ascontiguousarray(_check_X(X), dtype=float)
-        return self._booster.explain(Xc)
+        if not self._multiclass:
+            return self._booster.explain(Xc)
+        # OvR: 클래스별 부스터 explain → (n, n_classes, n_features)
+        per = [b.explain(Xc) for b in self._boosters]  # 각 (n, d)
+        return np.stack(per, axis=1)
 
 
 class OQBoostRegressor(_BaseOQBoost, RegressorMixin):
