@@ -16,6 +16,7 @@ the gradient (no random projections or numerical search), with a C++ backend.
 [![Python versions](https://img.shields.io/pypi/pyversions/oqboost.svg)](https://pypi.org/project/oqboost/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Build](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml/badge.svg)](https://github.com/CREE1116/oqboost-2.0/actions/workflows/wheels.yml)
+[![Tests](https://github.com/CREE1116/oqboost-2.0/actions/workflows/tests.yml/badge.svg)](https://github.com/CREE1116/oqboost-2.0/actions/workflows/tests.yml)
 
 <p align="center">
   <img src="docs/images/decision_boundary.png" alt="OQBoost decision boundaries vs XGBoost / LightGBM / CatBoost" width="820">
