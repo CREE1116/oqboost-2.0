@@ -28,11 +28,20 @@ to keep the top-`n_screen` candidates. Pair `max_lineage` with `n_screen` (e.g.
 
 ## When it helps
 
-LOB is **oblique-only** — axis trees cannot inherit directions. It gains on data
-with genuine high-order oblique + interaction structure (synthetic composed XOR:
-+0.02 AUC). On typical real data the gain is marginal (~+0.0016 mean) because the
-boosting ensemble already fills much of that gap by composition. Treat it as
-experimental.
+LOB is **oblique-only** — axis trees cannot inherit directions. Its gain tracks
+the data's **high-order interaction content** (the ANOVA 3rd+ residual `ε` in the
+[theory note](../theory.md)):
+
+- **High-ε data** (3rd+ order interactions matter): LOB recovers what plain 2D
+  misses. On `puma32H` (ε≈29%) it adds **+0.013 R²** and flips a loss to CatBoost
+  (0.939) into a win (0.952 at `max_lineage=4`). Synthetic composed XOR: +0.02 AUC.
+- **Low-ε data** (signal is ≤2-way, the common case): negligible (`cpu_small`
+  ε≈0 → +0.0006), sometimes slightly negative.
+
+So LOB is not "marginal everywhere" — averaging over the (mostly low-ε) suite hid
+that its value is **concentrated exactly on high-order-interaction datasets**. Turn
+it on when you suspect strong 3rd+ order structure; leave it off (the default)
+otherwise. Still experimental.
 
 ## Limitations
 

@@ -70,3 +70,27 @@ for did, name in [(1489, "phoneme"), (1067, "kc1"), (44, "spambase")]:
     base = row[0][1]
     print(f"{name:10s} (d0={d0}):  " +
           "  ".join(f"D={D}:{a:.4f}({a-base:+.4f})" for D, a in row))
+
+# ── C. LOB on high-eps datasets (recovers the higher-order terms 2D misses) ──
+print()
+print("=" * 72)
+print("C. LOB on high-eps sets: max_lineage 0/2/4 R2 vs CatBoost")
+print("   theory: gain should track eps (high-order interaction content)")
+print("=" * 72)
+try:
+    from oqboost import OQBoostRegressor
+    from catboost import CatBoostRegressor
+    print(f"{'dataset':11s} {'eps':>5s} | {'ml=0':>8s} {'ml=2':>8s} {'ml=4':>8s} | {'CatBoost':>8s}")
+    for name, did, eps in [("puma32H", 308, 0.287), ("house_16H", 574, 0.093),
+                           ("cpu_small", 227, 0.004)]:
+        _, X, y = _load_openml_reg(did, name, 8000)
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0)
+        def oq(ml):
+            return r2_score(yte, OQBoostRegressor(n_estimators=300, learning_rate=0.05,
+                            max_depth=5, max_lineage=ml, n_screen=16, random_state=0)
+                            .fit(Xtr, ytr).predict(Xte))
+        cat = r2_score(yte, CatBoostRegressor(n_estimators=600, learning_rate=0.05,
+                       depth=6, verbose=0, random_state=0).fit(Xtr, ytr).predict(Xte))
+        print(f"{name:11s} {eps*100:4.0f}% | {oq(0):8.4f} {oq(2):8.4f} {oq(4):8.4f} | {cat:8.4f}")
+except ImportError:
+    print("  (skipped: catboost not installed)")
