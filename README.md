@@ -75,12 +75,14 @@ regression), held-out test metrics. Mean rank (1 = best), wins in parentheses:
 
 | Task (datasets) | OQBoost | CatBoost | XGBoost | LightGBM |
 | --------------- | ------: | -------: | ------: | -------: |
-| Binary (12)     | **2.08** (6) | 2.33 (4) | 2.29 (2) | 3.29 (0) |
-| Multiclass (10) | **2.20** (5) | 2.40 (2) | 2.70 (1) | 2.70 (2) |
+| Binary (12)     | **2.08** (6) | 2.42 (2) | 2.62 (2) | 2.88 (1) |
+| Multiclass (10) | **2.20** (3) | **2.20** (3) | 3.20 (0) | 2.40 (1) |
 | Regression (10) | 2.50 (2) | **1.40** (6) | 3.20 (1) | 2.90 (1) |
 
-OQBoost leads both classification suites and lands second to CatBoost on
-regression. Full tables, prediction-similarity, and reproduction in
+OQBoost leads the binary suite on mean rank and wins, ties CatBoost for the lead
+on multiclass, and lands second to CatBoost on regression. It also has the best
+mean balanced accuracy on both classification suites (binary 0.856, multiclass
+0.826). Full tables, prediction-similarity, and reproduction in
 [docs/benchmarks.md](docs/benchmarks.md).
 
 ---

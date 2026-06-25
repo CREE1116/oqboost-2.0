@@ -27,7 +27,7 @@ COLORS = {"OQBoost": "#E05A2B", "XGBoost": "#2980B9",
 def oq_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 1, 4),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 max_bins=t.suggest_int("max_bins", 8, 255),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
@@ -38,7 +38,7 @@ def oq_params(t):
 def xgb_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 3, 8),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample_bytree=t.suggest_float("colsample_bytree", 0.6, 1.0),
                 reg_lambda=t.suggest_float("reg_lambda", 0.1, 5.0, log=True),
@@ -48,7 +48,7 @@ def xgb_params(t):
 def lgb_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 3, 8),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 num_leaves=t.suggest_int("num_leaves", 15, 127),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample_bytree=t.suggest_float("colsample_bytree", 0.6, 1.0),
@@ -58,7 +58,7 @@ def lgb_params(t):
 def cat_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                depth=t.suggest_int("depth", 3, 8),
+                depth=t.suggest_int("depth", 1, 8),
                 l2_leaf_reg=t.suggest_float("l2_leaf_reg", 0.5, 10.0, log=True),
                 bootstrap_type="Bernoulli",  # subsample 활성화를 위해 추가
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
@@ -78,7 +78,7 @@ def oq_reg_params(t):
     # depth 4-6이 sweet spot(측정). 범위를 1-7로 확장.
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 1, 7),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 max_bins=t.suggest_int("max_bins", 8, 255),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
@@ -89,7 +89,7 @@ def oq_reg_params(t):
 def xgb_reg_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 3, 8),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample_bytree=t.suggest_float("colsample_bytree", 0.6, 1.0),
                 reg_lambda=t.suggest_float("reg_lambda", 0.1, 5.0, log=True),
@@ -99,7 +99,7 @@ def xgb_reg_params(t):
 def lgb_reg_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                max_depth=t.suggest_int("max_depth", 3, 8),
+                max_depth=t.suggest_int("max_depth", 1, 8),
                 num_leaves=t.suggest_int("num_leaves", 15, 127),
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample_bytree=t.suggest_float("colsample_bytree", 0.6, 1.0),
@@ -109,7 +109,7 @@ def lgb_reg_params(t):
 def cat_reg_params(t):
     return dict(n_estimators=t.suggest_int("n_estimators", 60, 300),
                 learning_rate=t.suggest_float("learning_rate", 0.02, 0.3, log=True),
-                depth=t.suggest_int("depth", 3, 8),
+                depth=t.suggest_int("depth", 1, 8),
                 l2_leaf_reg=t.suggest_float("l2_leaf_reg", 0.5, 10.0, log=True),
                 bootstrap_type="Bernoulli",  # subsample 활성화를 위해 추가
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
