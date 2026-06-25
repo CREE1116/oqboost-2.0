@@ -128,3 +128,33 @@ for did, nm in [("house_16H", 574), ("puma32H", 308), ("cpu_small", 227)] and \
         [(574, "house_16H"), (308, "puma32H"), (227, "cpu_small"), (537, "houses")]:
     _, X, y = _load_openml_reg(did, nm, 6000); g = md_gap(X, y, False)
     print(f"{nm:11s} {'reg':4s} | {g[0]:+8.4f} {g[1]:+8.4f} {g[2]:+8.4f}")
+
+# ── E. why 2D? sweep oblique-atom dimension k (depth-1 boosted stumps) ───────
+print()
+print("=" * 72)
+print("E. atom dimension k sweep (k=1 axis, 2 = 2D-oblique, k=D full)")
+print("   approximation jump at k->2, full overfits => 2D favorable (not optimal)")
+print("=" * 72)
+def fit_kobl(Xtr, ytr, Xte, k, rounds=250, lr=0.05, ncand=12, seed=0):
+    rng = np.random.default_rng(seed); n, D = Xtr.shape; k = min(k, D)
+    ptr = np.full(n, ytr.mean()); pte = np.full(len(Xte), ytr.mean())
+    for _ in range(rounds):
+        g = ytr - ptr; gc = g - g.mean(); best = None
+        for _ in range(ncand):
+            feats = rng.choice(D, k, replace=False); Z = Xtr[:, feats]
+            w, *_ = np.linalg.lstsq(Z - Z.mean(0), gc, rcond=None); proj = Z @ w
+            o = np.argsort(proj); cs = np.cumsum(g[o]); tot = cs[-1]; cnt = np.arange(1, n)
+            gain = cs[:-1] ** 2 / cnt + (tot - cs[:-1]) ** 2 / (n - cnt)
+            bi = int(np.argmax(gain)); thr = proj[o][bi]
+            if best is None or gain[bi] > best[0]:
+                lm = proj <= thr; best = (gain[bi], feats, w, thr, g[lm].mean(), g[~lm].mean())
+        _, feats, w, thr, lv, rv = best
+        ptr = ptr + lr * np.where(Xtr[:, feats] @ w <= thr, lv, rv)
+        pte = pte + lr * np.where(Xte[:, feats] @ w <= thr, lv, rv)
+    return ptr, pte
+for did, nm in [(227, "cpu_small"), (537, "houses"), (308, "puma32H")]:
+    _, X, y = _load_openml_reg(did, nm, 5000); X = (X - X.mean(0)) / (X.std(0) + 1e-9)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=0); D = X.shape[1]
+    print(f"{nm} (D={D}):  " + "  ".join(
+        f"k={k}:{r2_score(yte, fit_kobl(Xtr,ytr,Xte,k)[1]):.3f}"
+        for k in [1, 2, 4, 8, D]))
