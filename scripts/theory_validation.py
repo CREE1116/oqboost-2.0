@@ -94,3 +94,37 @@ try:
         print(f"{name:11s} {eps*100:4.0f}% | {oq(0):8.4f} {oq(2):8.4f} {oq(4):8.4f} | {cat:8.4f}")
 except ImportError:
     print("  (skipped: catboost not installed)")
+
+# ── D. oblique vs axis at matched depth (oblique's net contribution) ─────────
+print()
+print("=" * 72)
+print("D. oblique(OQBoost) vs axis(XGBoost) at matched max_depth/NE/LR")
+print("   value = OQ - XGB; gap large when shallow, ~0 when deep => depth efficiency")
+print("=" * 72)
+print(f"{'dataset':11s} {'task':4s} | {'d1':>8s} {'d2':>8s} {'d4':>8s}")
+def md_gap(X, y, clf):
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25,
+                                          stratify=(y if clf else None), random_state=0)
+    out = []
+    for d in (1, 2, 4):
+        if clf:
+            o = roc_auc_score(yte, OQBoostClassifier(n_estimators=400, learning_rate=0.05,
+                              max_depth=d, random_state=0).fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+            x = roc_auc_score(yte, xgb.XGBClassifier(n_estimators=400, learning_rate=0.05,
+                              max_depth=d, subsample=0.8, colsample_bytree=0.8, verbosity=0)
+                              .fit(Xtr, ytr).predict_proba(Xte)[:, 1])
+        else:
+            o = r2_score(yte, OQBoostRegressor(n_estimators=400, learning_rate=0.05,
+                         max_depth=d, random_state=0).fit(Xtr, ytr).predict(Xte))
+            x = r2_score(yte, xgb.XGBRegressor(n_estimators=400, learning_rate=0.05,
+                         max_depth=d, subsample=0.8, colsample_bytree=0.8, verbosity=0)
+                         .fit(Xtr, ytr).predict(Xte))
+        out.append(o - x)
+    return out
+for did, nm in CLF:
+    _, X, y = _load_openml_one(did, nm, 6000); g = md_gap(X, y, True)
+    print(f"{nm:11s} {'clf':4s} | {g[0]:+8.4f} {g[1]:+8.4f} {g[2]:+8.4f}")
+for did, nm in [("house_16H", 574), ("puma32H", 308), ("cpu_small", 227)] and \
+        [(574, "house_16H"), (308, "puma32H"), (227, "cpu_small"), (537, "houses")]:
+    _, X, y = _load_openml_reg(did, nm, 6000); g = md_gap(X, y, False)
+    print(f"{nm:11s} {'reg':4s} | {g[0]:+8.4f} {g[1]:+8.4f} {g[2]:+8.4f}")
