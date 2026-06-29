@@ -436,34 +436,46 @@ struct FCache {
 };
 
 static std::vector<FCache> build_caches(const double* X, int d,
-                                        const std::vector<u16>& binidx,
                                         const std::vector<int>& idx,
                                         const std::vector<int>& feats,
                                         Workspace& ws) {
   size_t n_samples = idx.size();
   size_t n_feats = feats.size();
   ws.cols_flat.resize(n_feats * n_samples);
-  ws.bins_flat.resize(n_feats * n_samples);
 
   std::vector<FCache> C(n_feats);
   for (size_t fi = 0; fi < n_feats; fi++) {
     C[fi].f = feats[fi];
     C[fi].col = ws.cols_flat.data() + fi * n_samples;
-    C[fi].bin = ws.bins_flat.data() + fi * n_samples;
+    C[fi].bin = nullptr;  // binned values gathered lazily (only the 1D fallback needs them)
   }
 
-  // 이 함수 역시 샘플(행)을 외곽 루프에 두어 캐시 적중률 극대화
+  // 샘플(행)을 외곽 루프에 두어 캐시 적중률 극대화. 2D 사선 경로는 raw col만
+  // 쓰므로 bin은 안 모음 — 대부분 노드(2D 성공)서 u16 gather 통째 절약.
   for (size_t i = 0; i < n_samples; i++) {
     size_t row_offset = (size_t)idx[i] * d;
     for (size_t fi = 0; fi < n_feats; fi++) {
-      int f = C[fi].f;
       double* write_col = const_cast<double*>(C[fi].col);
-      u16* write_bin = const_cast<u16*>(C[fi].bin);
-      write_col[i] = X[row_offset + f];
-      write_bin[i] = binidx[row_offset + f];
+      write_col[i] = X[row_offset + C[fi].f];
     }
   }
   return C;
+}
+
+// Lazily fill the per-feature binned values for the 1D axis fallback (eval_1d).
+// Only invoked when the 2D search finds no split, so most nodes skip it entirely.
+static void gather_bins(std::vector<FCache>& C, int d,
+                        const std::vector<u16>& binidx,
+                        const std::vector<int>& idx, Workspace& ws) {
+  size_t n_samples = idx.size(), n_feats = C.size();
+  ws.bins_flat.resize(n_feats * n_samples);
+  for (size_t fi = 0; fi < n_feats; fi++)
+    C[fi].bin = ws.bins_flat.data() + fi * n_samples;
+  for (size_t i = 0; i < n_samples; i++) {
+    size_t row_offset = (size_t)idx[i] * d;
+    for (size_t fi = 0; fi < n_feats; fi++)
+      const_cast<u16*>(C[fi].bin)[i] = binidx[row_offset + C[fi].f];
+  }
 }
 
 // ─── 1D 분할 ─────────────────────────────────────────────────────────────────
@@ -805,11 +817,13 @@ static int build(std::vector<Node>& arena, const double* X, int d,
   std::vector<int> candidates = get_feature_candidates(d, P.colsample, rng);
   auto feats = screen(X, d, idx, (is_mc ? gn_global : g), P.n_screen, candidates);
   if (wss.empty()) wss.resize(1);
-  auto C = build_caches(X, d, binidx, idx, feats, wss[0]);
+  auto C = build_caches(X, d, idx, feats, wss[0]);
   // 2D 사선이 주 분할.
   Split bs = eval_2d(C, centers, has_nan, gn, hn, Gp, Hp, P, wss);
-  if (bs.gain <= 1e-6 || bs.type == 0)
+  if (bs.gain <= 1e-6 || bs.type == 0) {
+    gather_bins(C, d, binidx, idx, wss[0]);  // 1D 폴백 진입 시에만 bin 수집
     bs = eval_1d(C, centers, gn, hn, Gp, Hp, P, wss[0]);
+  }
   if (bs.gain <= 1e-6 || bs.type == 0) {
     if (is_mc) {
       arena[ni].leaf_weights.resize(K, 0.0);
