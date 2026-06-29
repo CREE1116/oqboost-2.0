@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oqboost"
-version = "2.2.1"
+version = "2.3.0"
 description = "OQBoost 2.0 — gradient-boosted 2D-oblique decision trees (histogram-binned, C++ backend)"
 readme = "README_pypi.md"
 license = { text = "MIT" }
