@@ -25,7 +25,7 @@ from source — needs a C++17 compiler and (for parallelism) OpenMP.
 ```python
 from oqboost import OQBoostClassifier, OQBoostRegressor
 
-# Binary / multiclass classification (3+ classes handled one-vs-rest automatically)
+# Binary / multiclass classification (3+ classes use a joint softmax automatically)
 clf = OQBoostClassifier(n_estimators=120, learning_rate=0.06, max_depth=4)
 clf.fit(X_train, y_train)
 proba = clf.predict_proba(X_test)   # (n_samples, n_classes), rows sum to 1

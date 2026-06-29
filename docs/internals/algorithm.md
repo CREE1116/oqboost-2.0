@@ -11,7 +11,7 @@ instead of a single axis-aligned threshold. Diagonal and pairwise-interaction
 boundaries are represented directly rather than approximated by axis-aligned
 staircases.
 
-## Direction finding — `fast_dir`
+## Direction finding
 
 The split direction at a node is found by **H-weighted least-squares regression
 of the gradient** onto the two features: a one-pass accumulation of 9 scalars and
@@ -23,6 +23,33 @@ residual actually points along, then thresholds along it.
 For each candidate feature pair the projection is histogrammed (`max_bins`) and
 the best threshold is chosen by the standard gain criterion. Pairs are searched
 in parallel (OpenMP).
+
+## Pair-set breadth — `fast_dir`
+
+`fast_dir` controls *which* feature pairs are evaluated, trading accuracy for
+speed (the direction solver above is the same either way):
+
+- `"full"` (default) — every pair, `O(d²)`. Highest accuracy; the right choice
+  unless the feature count makes the search too slow.
+- `"fast"` — Star anchoring: pair feature 0 with each other feature, `O(d)`. Much
+  cheaper on high-dimensional data, slightly lower accuracy.
+
+Legacy integer codes `1` (=full) and `2` (=fast) are still accepted. The earlier
+BHC-seed and top-1 modes were removed.
+
+## Multiclass — joint softmax
+
+`multiclass="joint"` (default) trains **one shared 2D-oblique tree per round** with
+a per-class leaf-weight vector, on the full softmax gradient
+`g_{i,k} = p_k − [y_i=k]`, `h_{i,k} = p_k(1−p_k)`. The 2D direction search needs a
+single scalar gradient, so each node reduces the K-class gradient to a
+node-consistent **signed** contrast `g_{i,k1} − g_{i,k2}`, where `k1`/`k2` are the
+most over- and under-predicted classes by `Σ_i g_{i,k}` (opposite signs → a
+discriminative axis); the leaf weights still update all K classes via `−G_k/H_k`.
+Each class is initialized to its sample-weighted **log-prior** (mirroring binary's
+`logit(prior)`), so imbalanced targets and `class_weight` start from the right
+offset instead of a uniform `1/K`. `multiclass="ovr"` is the alternative
+(one binary booster per class, probabilities normalized).
 
 ## Newton boosting
 

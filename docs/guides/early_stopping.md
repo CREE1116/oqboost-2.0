@@ -20,7 +20,9 @@ MSE for regression) on an incrementally-maintained score vector. When it fails t
 improve by more than `tol` for `n_iter_no_change` rounds, training stops and the
 ensemble is truncated to the best round (`best_iteration_`).
 
-- Multiclass (OvR): each one-vs-rest booster stops independently;
+- Multiclass `joint` (default): the single softmax model stops on the multiclass
+  deviance; `best_iteration_` is an int.
+- Multiclass `ovr`: each one-vs-rest booster stops independently;
   `best_iteration_` is a list, one per class.
 - Disabled under `warm_start` (continuation has no fresh validation split).
 - `n_iter_no_change=None` (default) disables early stopping — all

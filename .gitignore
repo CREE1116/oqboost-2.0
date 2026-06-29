@@ -11,3 +11,5 @@ catboost_info/
 .env
 docs/benchmark*.csv
 scripts/publish.sh
+data/cache/
+

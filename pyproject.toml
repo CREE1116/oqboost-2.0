@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 plot  = ["matplotlib>=3.8"]
-bench = ["xgboost>=2.0", "lightgbm>=4.3", "catboost>=1.2", "pandas>=2.1", "matplotlib>=3.8"]
+bench = ["xgboost>=2.0", "lightgbm>=4.3", "catboost>=1.2", "pandas>=2.1", "matplotlib>=3.8", "treeple>=0.10", "obliquetree>=1.1"]
 dev   = ["pytest>=8.0", "pytest-cov"]
 
 [project.urls]

@@ -15,7 +15,8 @@ on the booster so the added rounds continue the same sequence. With
 `subsample=1.0`, incrementally grown trees are bit-identical to training the full
 ensemble from scratch.
 
-Works for binary, regression, and multiclass (OvR — each class booster grows).
+Works for binary, regression, and multiclass — both `joint` (the single softmax
+model grows) and `ovr` (each class booster grows).
 
 ## Notes
 

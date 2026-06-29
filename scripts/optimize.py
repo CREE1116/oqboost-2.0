@@ -12,10 +12,12 @@ binary·multiclass·regression 세 task의 다양한 OpenML 데이터셋에서 4
 사용: python optimize.py [n_trials] [n_datasets_per_task] [--retune]
                           [--tasks binary,multiclass,regression]
 """
-import sys, json, time
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
+import tuning
+import json, time
 import numpy as np
 import optuna
 from sklearn.metrics import roc_auc_score, r2_score
@@ -29,7 +31,7 @@ ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 RETUNE   = "--retune" in sys.argv
 NO_CAT   = "--no-categorical" in sys.argv   # 기본: 네이티브 범주 ON
 N_TRIALS = int(ARGS[0]) if len(ARGS) > 0 else 30
-N_DATA   = int(ARGS[1]) if len(ARGS) > 1 else 10
+N_DATA   = int(ARGS[1]) if len(ARGS) > 1 else 15
 _tflag = [a for a in sys.argv if a.startswith("--tasks")]
 TASKS = (_tflag[0].split("=")[1].split(",") if _tflag and "=" in _tflag[0]
          else ["binary", "multiclass", "regression"])
@@ -37,6 +39,7 @@ TASKS = (_tflag[0].split("=")[1].split(",") if _tflag and "=" in _tflag[0]
 
 def load_cache():
     return json.loads(PARAMS_JSON.read_text()) if PARAMS_JSON.exists() else {}
+
 
 def save_cache(cache):
     PARAMS_JSON.parent.mkdir(exist_ok=True)
@@ -56,7 +59,7 @@ def main():
     cache = load_cache()
     for task in TASKS:
         strat = task != "regression"
-        data = SUITES[task](max_rows=8000)[:N_DATA]
+        data = SUITES[task](max_rows=10000)[:N_DATA]
         models = models_for(task)
         print(f"\n=== task: {task} ({len(data)} datasets) ===")
         for name, X, y in data:
@@ -78,7 +81,8 @@ def main():
                     return val_score(task, m, _Xv, yva)
                 study = optuna.create_study(
                     direction="maximize", sampler=optuna.samplers.TPESampler(seed=SEED))
-                study.optimize(obj, n_trials=N_TRIALS, show_progress_bar=False)
+                trials = 5 if mname in ("ObliqueTree", "ObliqueForest") else N_TRIALS
+                study.optimize(obj, n_trials=trials, show_progress_bar=False)
                 cache.setdefault(name, {})["_task"] = task
                 cache[name][mname] = study.best_params
                 save_cache(cache)                    # 증분 저장

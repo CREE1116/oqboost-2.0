@@ -7,6 +7,7 @@ OQBoostRegressor  : 회귀 (squared error)
 둘 다 C++ `oqboost_core.Booster`를 백엔드로 쓴다. 2D-oblique Newton GBDT.
 """
 import inspect
+import warnings
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.metrics import balanced_accuracy_score, f1_score
@@ -27,6 +28,23 @@ _THRESHOLD_METRICS = {
 
 # 회귀 손실 → C++ loss 코드. squared=L2, huber=robust, quantile=pinball.
 _LOSS = {"squared": 0, "huber": 1, "quantile": 2}
+
+# 2D-pair search mode → C++ fast_dir code. "full"=all pairs (O(d²), accuracy),
+# "fast"=Star anchor (feat0 × rest, O(d)). Legacy ints 1/2 still accepted.
+_SEARCH = {"full": 1, "fast": 2}
+
+
+def _fast_dir_code(fast_dir):
+    if isinstance(fast_dir, str):
+        try:
+            return _SEARCH[fast_dir]
+        except KeyError:
+            raise ValueError(
+                f"fast_dir={fast_dir!r} 미지원 (full | fast)") from None
+    code = int(fast_dir)
+    if code not in (1, 2):
+        raise ValueError(f"fast_dir={fast_dir!r} 미지원 (full | fast, 또는 1 | 2)")
+    return code
 
 # NaN allowed (the C++ backend handles missing values natively); arg name varies
 # across sklearn versions.
@@ -82,7 +100,7 @@ class _BaseOQBoost(BaseEstimator):
         n_screen: int = -1,
         subsample: float = 0.8,
         colsample: float = 0.8,
-        fast_dir: int = 1,   # H-가중 gradient 회귀 방향(기본). 0=BHC seed(legacy)
+        fast_dir="full",     # 2D-pair search: "full"(all pairs, default) | "fast"(Star anchor)
         threshold="0.5",     # 0.5 | "balanced" | "f1" — 이진 결정 cut (분류기만)
         loss: str = "squared",   # 회귀 손실: squared | huber | quantile (회귀기만)
         alpha: float = 0.9,      # huber=delta 분위 / quantile=목표 분위 (회귀기만)
@@ -96,6 +114,7 @@ class _BaseOQBoost(BaseEstimator):
         validation_fraction: float = 0.1,  # held-out fraction for early-stopping monitoring
         tol: float = 1e-4,          # min val-deviance improvement to count as progress
         random_state: int = 42,
+        multiclass: str = "joint",
     ):
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
@@ -120,6 +139,7 @@ class _BaseOQBoost(BaseEstimator):
         self.validation_fraction = validation_fraction
         self.tol = tol
         self.random_state = random_state
+        self.multiclass = multiclass
 
     # NaN is handled natively by the backend; tell sklearn it is intentional.
     def __sklearn_tags__(self):
@@ -174,10 +194,7 @@ class _BaseOQBoost(BaseEstimator):
         return self._booster.interaction_importances()
 
     def explain(self, X):
-        """표본별 피처 기여 (n, n_features). φ_i = Σ_경유분할 lr·gain·|coef_i|·dir.
-
-        경유한 경로의 분할만 사용 → "왜 이 예측이 나왔는가"에 직접 답한다.
-        양수는 예측을 끌어올린 피처, 음수는 끌어내린 피처."""
+        """Explain instance predictions."""
         check_is_fitted(self, "_booster")
         if int(self.max_lineage) > 0:
             raise NotImplementedError(
@@ -199,17 +216,12 @@ class _BaseOQBoost(BaseEstimator):
             reg_lambda=self.reg_lambda, min_samples=self.min_samples,
             n_screen=self.n_screen, subsample=self.subsample,
             colsample=self.colsample, seed=int(self.random_state),
-            objective=objective, fast_dir=self.fast_dir,
+            objective=objective, fast_dir=_fast_dir_code(self.fast_dir),
             loss=_LOSS[self.loss], alpha=float(self.alpha), clip=int(bool(self.clip)),
             monotone=mono, categorical=[], max_lineage=int(self.max_lineage),
         )
 
     def _cat_indices(self):
-        """categorical_features → list of column indices (empty if None).
-
-        Accepts an index list ([2, 5]) or a boolean mask. These columns are
-        target-encoded in the wrapper (see _encoders); the C++ core treats them
-        as ordinary continuous features afterwards."""
         cf = self.categorical_features
         if cf is None:
             return []
@@ -222,9 +234,6 @@ class _BaseOQBoost(BaseEstimator):
         return [int(i) for i in arr]
 
     def _monotone_list(self):
-        """monotone_constraints → 길이 n_features의 int 리스트(없으면 빈 리스트).
-
-        리스트/배열(-1/0/+1) 또는 {feat_idx: dir} dict 허용. 길이 검증."""
         mc = self.monotone_constraints
         if mc is None:
             return []
@@ -244,7 +253,6 @@ class _BaseOQBoost(BaseEstimator):
 
     @staticmethod
     def _sw(sample_weight, n):
-        """sample_weight -> array for the C++ backend. None -> empty (unweighted)."""
         if sample_weight is None:
             return np.empty(0, dtype=float)
         sw = np.ascontiguousarray(np.asarray(sample_weight, dtype=float).ravel())
@@ -256,8 +264,12 @@ class _BaseOQBoost(BaseEstimator):
             raise ValueError("all sample_weight values are zero")
         return sw
 
+    @staticmethod
+    def _merge_class_weight(sw, class_weight, y_binary):
+        cw = compute_sample_weight(class_weight, y_binary)
+        return cw if sw.size == 0 else sw * cw
+
     def _es_split(self, y, stratify):
-        """(tr_idx, va_idx) for early stopping; (None, None) if off or warm-start."""
         if self.n_iter_no_change is None or self.warm_start:
             return None, None
         tr, va = train_test_split(
@@ -267,7 +279,6 @@ class _BaseOQBoost(BaseEstimator):
         return tr, va
 
     def _fit_booster(self, b, Xc, yt, sw, tr, va):
-        """booster.fit with or without early stopping. Returns best_iteration (-1=none)."""
         if va is None:
             b.fit(Xc, yt, sw)
             return -1
@@ -279,59 +290,72 @@ class _BaseOQBoost(BaseEstimator):
 
 
 class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
-    """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest."""
+    """2D-oblique GBDT 분류기. 이진=네이티브, 다중클래스=one-vs-rest / joint."""
 
     def fit(self, X, y, sample_weight=None):
-        """Fit the classifier.
-
-        Parameters
-        ----------
-        X, y : training data; y may be binary or multiclass (handled one-vs-rest).
-        sample_weight : array-like of shape (n_samples,), optional
-            Per-sample weights. They scale each sample's gradient and hessian, so a
-            sample's influence on the loss is proportional to its weight. Note: this
-            is **not exactly equivalent to repeating rows** — the histogram bin edges
-            are computed unweighted, so weighted and replicated fits differ at a
-            second-order level (the gap shrinks as ``max_bins`` grows).
-        """
         if y is None:
             raise ValueError("requires y to be passed, but the target y is None")
         warm = self.warm_start and getattr(self, "classes_", None) is not None
         X, y = _check_Xy(self, X, y, reset=not warm)
-        check_classification_targets(y)  # reject continuous regression targets
+        check_classification_targets(y)
         Xc = np.ascontiguousarray(X, dtype=float)
-        sw = self._sw(sample_weight, len(y))
-        if self.class_weight is not None:  # fold class weights into the sample weights
-            cw = compute_sample_weight(self.class_weight, y)
-            sw = cw if sw.size == 0 else sw * cw
-        cat = self._cat_indices()  # columns to target-encode (per binary target)
-        # warm-start: add trees on the same data (n_estimators delta); keep threshold.
+
+        sw_orig = self._sw(sample_weight, len(y))
+        sw = sw_orig.copy() if sw_orig.size else sw_orig
+
+        cat = self._cat_indices()
+
         if warm and X.shape[1] == self.n_features_in_:
             if not self._multiclass:
+                sw_warm = sw_orig.copy() if sw_orig.size else sw_orig
+                if self.class_weight is not None:
+                    ybin_warm = (y == self.classes_[1]).astype(int)
+                    sw_warm = self._merge_class_weight(sw_warm, self.class_weight, ybin_warm)
                 extra = self.n_estimators - self._booster.n_trees()
                 if extra > 0:
                     Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
                     self._booster.fit_more(
-                        Xt, (y == self.classes_[1]).astype(float), extra, sw)
+                        Xt, (y == self.classes_[1]).astype(float), extra, sw_warm)
+            elif getattr(self, "_joint_multiclass", False):
+                sw_warm = sw_orig.copy() if sw_orig.size else sw_orig
+                if self.class_weight is not None:
+                    sw_warm = self._merge_class_weight(sw_warm, self.class_weight, y)
+                extra = self.n_estimators - self._booster.n_trees()
+                if extra > 0:
+                    Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
+                    ymult = np.searchsorted(self.classes_, y).astype(float)
+                    self._booster.fit_more(Xt, ymult, extra, sw_warm)
             else:
                 for k, (cls, b) in enumerate(zip(self.classes_, self._boosters)):
                     extra = self.n_estimators - b.n_trees()
                     if extra > 0:
+                        ybin_k = (y == cls).astype(int)
+                        sw_k = sw_orig.copy() if sw_orig.size else sw_orig
+                        if self.class_weight is not None:
+                            sw_k = self._merge_class_weight(sw_k, self.class_weight, ybin_k)
                         Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
-                        b.fit_more(Xt, (y == cls).astype(float), extra, sw)
+                        b.fit_more(Xt, ybin_k.astype(float), extra, sw_k)
             return self
+
         if X.shape[0] < 2:
             raise ValueError(f"need at least 2 samples to fit, got n_samples={X.shape[0]}")
         self.classes_ = np.unique(y)
         self._cat_idx = cat
-        # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
         if len(self.classes_) < 2:
             raise ValueError("y must contain at least 2 classes")
-        tr, va = self._es_split(y, stratify=True)  # early stopping split (or None)
+        
+        # OvR 스케일링 복원을 위해 각 클래스의 원본 기저 확률(Priors) 미리 계산
+        self._priors = np.array([np.mean(y == cls) for cls in self.classes_])
+        
+        tr, va = self._es_split(y, stratify=True)
         seed = int(self.random_state)
+
         if len(self.classes_) == 2:
             self._multiclass = False
+            self._joint_multiclass = False
             ybin = (y == self.classes_[1]).astype(float)
+            if self.class_weight is not None:
+                sw = self._merge_class_weight(sw_orig, self.class_weight, ybin.astype(int))
             if cat:
                 Xc, self._cat_enc = _enc.fit_transform(Xc, cat, ybin, True, seed=seed)
             else:
@@ -339,33 +363,59 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
             self.decision_threshold_ = self._fit_threshold(Xc, ybin)
             self._booster = self._make_booster(objective=0)
             self.best_iteration_ = self._fit_booster(self._booster, Xc, ybin, sw, tr, va)
-        else:
-            # one-vs-rest: one binary booster per class (each with its own encoding)
+
+        elif self.multiclass == "joint":
             self._multiclass = True
-            self.decision_threshold_ = 0.5  # multiclass uses argmax, no cut
+            self._joint_multiclass = True
+            self.decision_threshold_ = 0.5
+            ymult = np.searchsorted(self.classes_, y).astype(float)
+            if self.class_weight is not None:
+                sw = self._merge_class_weight(sw_orig, self.class_weight, y)
+            if cat:
+                Xc, self._cat_enc = _enc.fit_transform(Xc, cat, ymult, True, seed=seed)
+            else:
+                self._cat_enc = None
+            self._booster = self._make_booster(objective=2)
+            self.best_iteration_ = self._fit_booster(self._booster, Xc, ymult, sw, tr, va)
+
+        else:
+            self._multiclass = True
+            self._joint_multiclass = False
+            self.decision_threshold_ = 0.5
+
+            if isinstance(self.threshold, str) and self.threshold != "0.5":
+                warnings.warn(
+                    f"threshold='{self.threshold}'은 multiclass OvR 모드에서 무시됩니다. "
+                    "predict()는 argmax를 사용하므로 decision_threshold_가 적용되지 않습니다. "
+                    "대신 predict_proba 단에서 Prior Correction 보정이 작동합니다.",
+                    UserWarning, stacklevel=2,
+                )
+
             self._boosters = []
             self._cat_enc = []
             bi = []
             for cls in self.classes_:
-                ybin = (y == cls).astype(float)
+                ybin_k = (y == cls).astype(int)
+                sw_k = sw_orig.copy() if sw_orig.size else sw_orig
+                if self.class_weight is not None:
+                    sw_k = self._merge_class_weight(sw_k, self.class_weight, ybin_k)
+
+                ybin_kf = ybin_k.astype(float)
                 if cat:
-                    Xk, enck = _enc.fit_transform(Xc, cat, ybin, True, seed=seed)
+                    Xk, enck = _enc.fit_transform(
+                        Xc, cat, ybin_kf, True, seed=seed, sample_weight=sw_k
+                    )
                 else:
                     Xk, enck = Xc, None
                 self._cat_enc.append(enck)
                 b = self._make_booster(objective=0)
-                bi.append(self._fit_booster(b, Xk, ybin, sw, tr, va))
+                bi.append(self._fit_booster(b, Xk, ybin_kf, sw_k, tr, va))
                 self._boosters.append(b)
             self.best_iteration_ = bi if va is not None else -1
+
         return self
 
     def _fit_threshold(self, Xc, ybin):
-        """이진 결정 cut 결정. float이면 그대로, 메트릭명이면 holdout서 최적화.
-
-        proba는 calibrated이므로 0.5가 기본. 불균형 데이터에서 balanced
-        accuracy/F1을 극대화하려면 cut을 옮겨야 함 → stratified holdout에서
-        보조 부스터로 OOF proba를 얻어 최적 threshold 탐색(누수 없음).
-        """
         try:
             return float(self.threshold)
         except (TypeError, ValueError):
@@ -374,7 +424,6 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
         if metric is None:
             raise ValueError(f"threshold='{self.threshold}' 미지원 "
                              f"(0.5 | {' | '.join(_THRESHOLD_METRICS)})")
-        # 양/음 클래스 모두 최소 2개 있어야 stratify 가능
         if min(int(ybin.sum()), int((1 - ybin).sum())) < 2:
             return 0.5
         Xt, Xh, yt, yh = train_test_split(
@@ -391,16 +440,42 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
         check_is_fitted(self, "_multiclass")
         Xc = np.ascontiguousarray(_check_X(self, X), dtype=float)
         cat = getattr(self, "_cat_idx", [])
-        if not self._multiclass:
+        
+        if not self._multiclass or getattr(self, "_joint_multiclass", False):
             Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
             return self._booster.predict_proba(Xt)
-        # OvR: P(class k) from each booster (its own encoding) -> row-normalize
+            
+        # OvR 확률 예측: 베이지안 사전 확률 보정(Prior Correction) 적용 파트
         cols = []
         for k, b in enumerate(self._boosters):
             Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
-            cols.append(b.predict_proba(Xt)[:, 1])
-        P = np.clip(np.column_stack(cols), 1e-12, None)
-        return P / P.sum(axis=1, keepdims=True)
+            # b.predict_proba는 가중치로 인해 변형된 [1-p, p] 확률 반환
+            pb = b.predict_proba(Xt)[:, 1]
+            pb = np.clip(pb, 1e-15, 1.0 - 1e-15)
+            
+            # 1. 왜곡된 이진 결합 상태의 Log-odds(Logit) 추출
+            logit_balanced = np.log(pb / (1.0 - pb))
+            
+            # 2. class_weight='balanced'가 켜져 왜곡이 발생한 경우 기저 우선순위 복원
+            if self.class_weight is not None:
+                pk = self._priors[k]
+                if 0.0 < pk < 1.0:
+                    # True Logit = Balanced Logit + log(pk / (1 - pk))
+                    logit_true = logit_balanced + np.log(pk / (1.0 - pk))
+                else:
+                    logit_true = logit_balanced
+            else:
+                logit_true = logit_balanced
+                
+            # 3. 보정된 로짓을 바탕으로 이진 사후 확률 계산
+            p_true = 1.0 / (1.0 + np.exp(-logit_true))
+            cols.append(p_true)
+            
+        # 결합 및 정규화 수행
+        P = np.column_stack(cols)
+        P_sum = P.sum(axis=1, keepdims=True)
+        P_sum = np.where(P_sum == 0, 1.0, P_sum)
+        return P / P_sum
 
     def predict(self, X):
         P = self.predict_proba(X)
@@ -412,9 +487,8 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
     @property
     def feature_importances_(self):
         check_is_fitted(self, "_multiclass")
-        if not self._multiclass:
+        if not self._multiclass or getattr(self, "_joint_multiclass", False):
             return self._booster.feature_importances()
-        # OvR: 부스터 평균
         fi = np.mean([b.feature_importances() for b in self._boosters], axis=0)
         return fi / fi.sum() if fi.sum() > 0 else fi
 
@@ -426,25 +500,22 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
     @property
     def coefficient_importances_(self):
         check_is_fitted(self, "_multiclass")
-        if not self._multiclass:
+        if not self._multiclass or getattr(self, "_joint_multiclass", False):
             return self._booster.coefficient_importances()
         return self._avg_norm("coefficient_importances")
 
     @property
     def interaction_importances_(self):
         check_is_fitted(self, "_multiclass")
-        if not self._multiclass:
+        if not self._multiclass or getattr(self, "_joint_multiclass", False):
             return self._booster.interaction_importances()
         return self._avg_norm("interaction_importances")
 
     def explain(self, X):
-        """표본별 피처 기여.
-
-        이진: (n, n_features) — class-1 logit 기여.
-        다중클래스(OvR): (n, n_classes, n_features) — `[:, k, :]`가 class-k의
-        one-vs-rest logit에 대한 가산적 기여(각 클래스 부스터의 explain). 클래스별로
-        "왜 이 클래스 점수가 이렇게 나왔나"를 답한다."""
         check_is_fitted(self, "_multiclass")
+        if getattr(self, "_joint_multiclass", False):
+            raise NotImplementedError(
+                "explain()은 multiclass='joint' 모드를 지원하지 않습니다. multiclass='ovr'을 사용하세요.")
         if int(self.max_lineage) > 0:
             raise NotImplementedError(
                 "explain()은 max_lineage=0(기본 2D)만 지원 (LOB 합성 방향 미지원).")
@@ -453,7 +524,6 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
         if not self._multiclass:
             Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
             return self._booster.explain(Xt)
-        # OvR: per-class booster explain (its own encoding) -> (n, n_classes, d)
         per = []
         for k, b in enumerate(self._boosters):
             Xt = _enc.transform(Xc, cat, self._cat_enc[k]) if cat else Xc
@@ -464,17 +534,57 @@ class OQBoostClassifier(ClassifierMixin, _BaseOQBoost):
 class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
     """2D-oblique gradient-boosted oblique trees — 회귀기 (C++ 백엔드, squared error)."""
 
-    def fit(self, X, y, sample_weight=None):
-        """Fit the regressor.
+    def __init__(
+        self,
+        n_estimators: int = 120,
+        learning_rate: float = 0.06,
+        max_depth: int = 4,
+        max_bins: int = 16,
+        reg_lambda: float = 1.0,
+        min_samples: int = 10,
+        n_screen: int = -1,
+        subsample: float = 0.8,
+        colsample: float = 0.8,
+        fast_dir="full",   # 회귀도 전수 조사("full")가 기본
+        threshold="0.5",
+        loss: str = "squared",
+        alpha: float = 0.9,
+        clip: bool = False,
+        monotone_constraints=None,
+        categorical_features=None,
+        max_lineage: int = 0,
+        warm_start: bool = False,
+        n_iter_no_change=None,
+        validation_fraction: float = 0.1,
+        tol: float = 1e-4,
+        random_state: int = 42,
+    ):
+        super().__init__(
+            n_estimators=n_estimators,
+            learning_rate=learning_rate,
+            max_depth=max_depth,
+            max_bins=max_bins,
+            reg_lambda=reg_lambda,
+            min_samples=min_samples,
+            n_screen=n_screen,
+            subsample=subsample,
+            colsample=colsample,
+            fast_dir=fast_dir,
+            threshold=threshold,
+            loss=loss,
+            alpha=alpha,
+            clip=clip,
+            monotone_constraints=monotone_constraints,
+            categorical_features=categorical_features,
+            max_lineage=max_lineage,
+            warm_start=warm_start,
+            n_iter_no_change=n_iter_no_change,
+            validation_fraction=validation_fraction,
+            tol=tol,
+            random_state=random_state,
+        )
 
-        Parameters
-        ----------
-        X, y : training data (numeric target).
-        sample_weight : array-like of shape (n_samples,), optional
-            Per-sample weights scaling each sample's gradient and hessian. Not
-            exactly equivalent to repeating rows — bin edges are computed unweighted
-            (a second-order difference that shrinks as ``max_bins`` grows).
-        """
+    def fit(self, X, y, sample_weight=None):
         if y is None:
             raise ValueError("requires y to be passed, but the target y is None")
         warm = self.warm_start and getattr(self, "_booster", None) is not None
@@ -483,14 +593,12 @@ class OQBoostRegressor(RegressorMixin, _BaseOQBoost):
         yf = y.astype(float)
         sw = self._sw(sample_weight, len(y))
         cat = self._cat_indices()
-        # warm-start: add trees on the same data (n_estimators delta).
         if warm and X.shape[1] == self.n_features_in_:
             extra = self.n_estimators - self._booster.n_trees()
             if extra > 0:
                 Xt = _enc.transform(Xc, cat, self._cat_enc) if cat else Xc
                 self._booster.fit_more(Xt, yf, extra, sw)
             return self
-        # n_features_in_ / feature_names_in_ set by _check_Xy(reset=True)
         self._cat_idx = cat
         if cat:
             Xc, self._cat_enc = _enc.fit_transform(Xc, cat, yf, False, seed=int(self.random_state))

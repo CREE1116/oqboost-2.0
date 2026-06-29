@@ -4,9 +4,31 @@ datasets.py — 벤치마크용 데이터셋 (합성 2D + 실제 OpenML)
 import warnings
 warnings.filterwarnings("ignore")
 
+from pathlib import Path
 import numpy as np
 from sklearn.datasets import load_breast_cancer, fetch_openml, make_moons, make_circles
 from sklearn.preprocessing import OrdinalEncoder
+
+CACHE_DIR = Path(__file__).parent.parent / "data" / "cache"
+
+def _get_cache(name):
+    cache_file = CACHE_DIR / f"{name}.npz"
+    if cache_file.exists():
+        try:
+            data = np.load(cache_file, allow_pickle=True)
+            X = data["X"]
+            y = data["y"]
+            cat = list(data["cat"])
+            CAT_INDEX[name] = cat
+            return X, y
+        except Exception:
+            pass
+    return None
+
+def _save_cache(name, X, y, cat):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_file = CACHE_DIR / f"{name}.npz"
+    np.savez(cache_file, X=X, y=y, cat=cat)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -101,6 +123,9 @@ def _encode(df):
 
 
 def _load_openml_one(did, name, max_rows):
+    cached = _get_cache(name)
+    if cached is not None:
+        return name, cached[0], cached[1]
     data = fetch_openml(data_id=did, as_frame=True, parser="auto")
     df = data.frame
     tcol = data.target_names[0]
@@ -113,11 +138,15 @@ def _load_openml_one(did, name, max_rows):
     X = np.nan_to_num(Xe)
     X, y = _subsample(X, y, max_rows)
     CAT_INDEX[name] = cat
+    _save_cache(name, X, y, cat)
     return name, X, np.asarray(y)
 
 
 def _load_openml_multi(did, name, max_rows):
     """다중클래스: 클래스 수 제한 없음. y는 0..K-1 정수 코드."""
+    cached = _get_cache(name)
+    if cached is not None:
+        return name, cached[0], cached[1]
     data = fetch_openml(data_id=did, as_frame=True, parser="auto")
     df = data.frame
     tcol = data.target_names[0]
@@ -131,11 +160,15 @@ def _load_openml_multi(did, name, max_rows):
     X = np.nan_to_num(Xe)
     X, y = _subsample(X, y, max_rows)
     CAT_INDEX[name] = cat
+    _save_cache(name, X, y, cat)
     return name, X, np.asarray(y)
 
 
 def _load_openml_reg(did, name, max_rows):
     """회귀: 수치형 타깃. 표준화 안 함(모델이 스케일 불변)."""
+    cached = _get_cache(name)
+    if cached is not None:
+        return name, cached[0], cached[1]
     data = fetch_openml(data_id=did, as_frame=True, parser="auto")
     df = data.frame
     tcol = data.target_names[0]
@@ -146,6 +179,7 @@ def _load_openml_reg(did, name, max_rows):
     X, y = X[m], y[m]
     X, y = _subsample(X, y, max_rows)
     CAT_INDEX[name] = cat
+    _save_cache(name, X, y, cat)
     return name, X, y
 
 
@@ -194,6 +228,9 @@ OPENML_MULTICLASS = [
     (458, "analcatdata_auth"),# 4cls
     (60, "waveform"),         # 3cls d40
     (1481, "kr_vs_k"),        # 18cls
+    (40965, "segment"),       # 7cls d80
+    (11, "balance-scale"),    # 3cls d4
+    (21, "car"),              # 4cls d6
 ]
 
 # 회귀 (sklearn 내장 + OpenML delve/friedman 등 다양)
@@ -208,10 +245,15 @@ OPENML_REGRESSION = [
     (197, "cpu_act"),      # d21
     (344, "mv"),           # d10 (혼합형)
     (4544, "music_origin"),# d116 고차원
+    (216, "elevators"),    # d18
+    (189, "kin8nm"),       # d8
+    (198, "delta_ailerons"),# d6
+    (201, "pol"),          # d48
+    (504, "wind"),         # d7
 ]
 
 
-def load_openml_suite(max_rows=8000, include_breast=True):
+def load_openml_suite(max_rows=10000, include_breast=True):
     """다양한 OpenML 이진 데이터셋. 반환: list of (name, X, y)."""
     out = []
     if include_breast:
@@ -225,7 +267,7 @@ def load_openml_suite(max_rows=8000, include_breast=True):
     return out
 
 
-def load_multiclass_suite(max_rows=8000, include_builtin=True):
+def load_multiclass_suite(max_rows=10000, include_builtin=True):
     """다중클래스 데이터셋. 반환: list of (name, X, y)."""
     out = []
     if include_builtin:
@@ -240,7 +282,7 @@ def load_multiclass_suite(max_rows=8000, include_builtin=True):
     return out
 
 
-def load_regression_suite(max_rows=8000, include_builtin=True):
+def load_regression_suite(max_rows=10000, include_builtin=True):
     """회귀 데이터셋. 반환: list of (name, X, y)."""
     out = []
     if include_builtin:
@@ -268,7 +310,7 @@ SUITES = {
 }
 
 
-def load_tasks(tasks=("binary", "multiclass", "regression"), max_rows=8000):
+def load_tasks(tasks=("binary", "multiclass", "regression"), max_rows=10000):
     """선택 task들의 데이터셋을 (name, X, y, task)로 태깅해 반환."""
     out = []
     for t in tasks:

@@ -3,6 +3,10 @@ decision_boundary.py — 결정경계 비교 (OQBoost / XGBoost / LightGBM / Cat
 다양한 합성 2D 데이터셋에서 각 모델의 P(y=1) 경계를 나란히 그린다.
 출력: docs/images/decision_boundary.png
 """
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))         # scripts/ (datasets, models)
@@ -11,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))  # 프로젝트 루트 (an
 import warnings
 warnings.filterwarnings("ignore")
 
+import tuning
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
@@ -76,46 +81,35 @@ def boundary(ax, mdl, X, y, title):
 
 def main():
     datasets = list(SYNTH_2D.items())
+    mc = list(SYNTH_MC.items())
+    all_datasets = [(dname, fn, False) for dname, fn in datasets] + [(dname, fn, True) for dname, fn in mc]
     model_names = list(make_models().keys())
-    nrow, ncol = len(datasets), len(model_names)
+    nrow, ncol = len(all_datasets), len(model_names)
     fig, axes = plt.subplots(nrow, ncol, figsize=(2.6*ncol, 2.6*nrow))
 
-    for r, (dname, fn) in enumerate(datasets):
+    for r, (dname, fn, is_mc) in enumerate(all_datasets):
         X, y = fn()
         for c, mname in enumerate(model_names):
+            print(f"[{r+1}/{nrow}, {c+1}/{ncol}] Fitting {mname} on {dname} (is_mc={is_mc})...", flush=True)
             mdl = make_models()[mname]
             mdl.fit(X, y)
-            auc = roc_auc_score(y, mdl.predict_proba(X)[:, 1])
             ax = axes[r, c]
-            boundary(ax, mdl, X, y, f"{mname}\n{dname}  AUC={auc:.3f}")
+            if is_mc:
+                acc = accuracy_score(y, mdl.predict(X))
+                boundary_mc(ax, mdl, X, y, f"{mname}\n{dname}  acc={acc:.3f}")
+            else:
+                auc = roc_auc_score(y, mdl.predict_proba(X)[:, 1])
+                boundary(ax, mdl, X, y, f"{mname}\n{dname}  AUC={auc:.3f}")
             if c == 0:
                 ax.set_ylabel(dname, fontsize=10, rotation=90)
 
-    fig.suptitle("Decision Boundaries — OQBoost vs XGBoost / LightGBM / CatBoost",
-                 fontsize=13, fontweight="bold", y=1.002)
+    fig.suptitle("Decision Boundaries — 2-Class & 3-Class Synthesis Datasets",
+                 fontsize=14, fontweight="bold", y=1.002)
     plt.tight_layout()
     out = Path(__file__).parent.parent / "docs" / "images"; out.mkdir(parents=True, exist_ok=True)
     path = out / "decision_boundary.png"
     fig.savefig(path, dpi=130, bbox_inches="tight"); plt.close(fig)
     print(f"  → {path}")
-
-    # ── 멀티클래스(3-class) 결정경계 ─────────────────────────────────────────
-    mc = list(SYNTH_MC.items())
-    fig, axes = plt.subplots(len(mc), ncol, figsize=(2.6*ncol, 2.6*len(mc)))
-    for r, (dname, fn) in enumerate(mc):
-        X, y = fn()
-        for c, mname in enumerate(model_names):
-            mdl = make_models()[mname]; mdl.fit(X, y)
-            acc = accuracy_score(y, mdl.predict(X))
-            boundary_mc(axes[r, c], mdl, X, y, f"{mname}\n{dname}  acc={acc:.3f}")
-            if c == 0:
-                axes[r, c].set_ylabel(dname, fontsize=10, rotation=90)
-    fig.suptitle("Multiclass decision regions (3 classes) — OQBoost vs XGBoost / LightGBM / CatBoost",
-                 fontsize=12, fontweight="bold", y=1.002)
-    plt.tight_layout()
-    path_mc = out / "decision_boundary_multiclass.png"
-    fig.savefig(path_mc, dpi=130, bbox_inches="tight"); plt.close(fig)
-    print(f"  → {path_mc}")
 
 
 if __name__ == "__main__":
