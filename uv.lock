@@ -962,8 +962,36 @@ wheels = [
 ]
 
 [[package]]
+name = "obliquetree"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6a/15/bb459c7494cb58eadaf5286629dbeb8f5543ea9dd66c372143e46b529002/obliquetree-1.1.1-cp310-cp310-macosx_15_0_arm64.whl", hash = "sha256:66326ff3e82b2d4e4c8ee969156769da61b2dca4cbcc6f4949cca0dd911e8986", size = 1735529, upload-time = "2026-03-26T08:11:01.039Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/20/6765a4ff1d7455b234f022b8f661c1294cf2de8953fbad1e0dc80d3a371e/obliquetree-1.1.1-cp310-cp310-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1e3d9ab847f48b586ad3d6f6e77113408674fc571eb65f2ecf4c109d90157311", size = 4491777, upload-time = "2026-03-26T08:18:36.533Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/5d/3563e9d4a5552e64fe9b4914cefddb7892b48e35cf2aafc626dce5f03022/obliquetree-1.1.1-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:d4653bfdc5196dc5cc5022fa6cd44e85a66fd6712b245282fea38d8a920160e5", size = 5580739, upload-time = "2026-03-26T08:18:37.996Z" },
+    { url = "https://files.pythonhosted.org/packages/63/83/7769516a6d0b8edd92cb985c16f0f9b535378f3d1dece4a5500817152e08/obliquetree-1.1.1-cp310-cp310-win_amd64.whl", hash = "sha256:3b9849bd9af5f6ddc165e495cc351d99f742a6d85a3e387f29363c00b16b73e8", size = 1435416, upload-time = "2026-03-26T08:13:09.985Z" },
+    { url = "https://files.pythonhosted.org/packages/c1/61/49419bfbf379eefb34e134fcad358cb1805a85ce4fbf3ade5b5de3977b87/obliquetree-1.1.1-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:1c9ea72331b658f39f15a2cccebdef1317892fcab12f7ca3e16cc7151036d5a2", size = 1732276, upload-time = "2026-03-26T08:11:02.617Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/3a/c01b0dfa2798349ff20a547907e8d82304b8c718082c60d1d66cbb01b79b/obliquetree-1.1.1-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:02ef7486327a61e075a8ea7536fc8c5a2aff447370bb2581f1a380f37aa0bab9", size = 4658008, upload-time = "2026-03-26T08:18:39.651Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/38/822315933aee8a17d45234fc5d03308f526fe15c2917a36f6b95b5915d20/obliquetree-1.1.1-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:ccf2f949800097ecca0538d5f995f548707ff286b2e8b2932d6f3dc18265e0ab", size = 5747581, upload-time = "2026-03-26T08:18:41.071Z" },
+    { url = "https://files.pythonhosted.org/packages/41/b4/da5f43efddc62c70b203243aae81088bf58328ee1e13e4673b5b3bf07d98/obliquetree-1.1.1-cp311-cp311-win_amd64.whl", hash = "sha256:0e6db113891959065d96b7ac52b69872555d7581abd7aee33d8e6dc0da4c0380", size = 1433684, upload-time = "2026-03-26T08:13:11.414Z" },
+    { url = "https://files.pythonhosted.org/packages/09/50/e3013b89a8e905333077aece6cf430ab5f28c27d389e48314129999271a3/obliquetree-1.1.1-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:bb98f4faf5adf1af17dfc3347993800ac02dd4b4a8b57c593341c19d5b8be8e5", size = 1735213, upload-time = "2026-03-26T08:11:03.567Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/b3/5074eb795165188868ea476410bd147cc79ad82dd014004c35de1937c30f/obliquetree-1.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6d61cd3c7943b93b11e5b77cac2804c6992d6941db73ecbc521817b4a51d37a4", size = 4601060, upload-time = "2026-03-26T08:18:42.58Z" },
+    { url = "https://files.pythonhosted.org/packages/d6/95/1f54a3054d700c199165eeb3cc4cb74ebeecf09944e60e84aa9440aa349e/obliquetree-1.1.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:2964fc4c44b61dbde9232ccbf131aaa90ddeb0e3b03f54bca65de118bb2f35dd", size = 5668484, upload-time = "2026-03-26T08:18:44.373Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/06/124d263535b124159e1c68f3f8c0b4795a04089bf449cffd3b1eec45c3c9/obliquetree-1.1.1-cp312-cp312-win_amd64.whl", hash = "sha256:2fa33fdf8739352239264c5eace7b2f1307cd08d8276a335b8f5acda9cbde2f7", size = 1436877, upload-time = "2026-03-26T08:13:12.712Z" },
+    { url = "https://files.pythonhosted.org/packages/55/42/fa17f680b930ee5a49249ed85dbc513a6189b6be749126d3e3b9bc31ed4f/obliquetree-1.1.1-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:ca67d2d4b21d0f399dd3f89248b0fef7b4cdd88622cf3bb0a54072877d6b2597", size = 1732069, upload-time = "2026-03-26T08:11:04.846Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/28/1f676ca8fddef6a1c1577d1700015158a8bc8491f790a9a08402fdb91124/obliquetree-1.1.1-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b3615305c21819e97817d170d59b8d5790950d977864373b726c828b8567dc15", size = 4602577, upload-time = "2026-03-26T08:18:45.595Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/32/7ed65e9607e75aadb18d1c0ed3103c0521aa783ed13396d706cb5c704dc3/obliquetree-1.1.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:02abbca08a09f86ad4e8fb67b3144084595249c674f3c92e8390e988d33c9982", size = 5663712, upload-time = "2026-03-26T08:18:46.778Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/0a/6986bf63b7fa2d4b2e7e24fe353c172bf52fb3a2e102f4f315847eb035ba/obliquetree-1.1.1-cp313-cp313-win_amd64.whl", hash = "sha256:2c21ef0f7d89ac2421d56dcd354d1c269fcf8626abb88306629117b23b904dfb", size = 1435538, upload-time = "2026-03-26T08:13:14.188Z" },
+]
+
+[[package]]
 name = "oqboost"
-version = "2.0.5"
+version = "2.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -979,8 +1007,10 @@ bench = [
     { name = "lightgbm" },
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "matplotlib", version = "3.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "obliquetree" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "treeple" },
     { name = "xgboost", version = "3.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "xgboost", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
@@ -1000,10 +1030,12 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'bench'", specifier = ">=3.8" },
     { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "obliquetree", marker = "extra == 'bench'", specifier = ">=1.1" },
     { name = "pandas", marker = "extra == 'bench'", specifier = ">=2.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "treeple", marker = "extra == 'bench'", specifier = ">=0.10" },
     { name = "xgboost", marker = "extra == 'bench'", specifier = ">=2.0" },
 ]
 provides-extras = ["plot", "bench", "dev"]
@@ -1713,6 +1745,36 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/12/64/da524626d3b9cc40c168a13da8335fe1c51be12c0a63685cc6db7308daae/tomli-2.4.1-cp314-cp314t-win_amd64.whl", hash = "sha256:2c1c351919aca02858f740c6d33adea0c5deea37f9ecca1cc1ef9e884a619d26", size = 121196, upload-time = "2026-03-25T20:22:01.169Z" },
     { url = "https://files.pythonhosted.org/packages/5a/cd/e80b62269fc78fc36c9af5a6b89c835baa8af28ff5ad28c7028d60860320/tomli-2.4.1-cp314-cp314t-win_arm64.whl", hash = "sha256:eab21f45c7f66c13f2a9e0e1535309cee140182a9cdae1e041d02e47291e8396", size = 100393, upload-time = "2026-03-25T20:22:02.137Z" },
     { url = "https://files.pythonhosted.org/packages/7b/61/cceae43728b7de99d9b847560c262873a1f6c98202171fd5ed62640b494b/tomli-2.4.1-py3-none-any.whl", hash = "sha256:0d85819802132122da43cb86656f8d1f8c6587d54ae7dcaf30e90533028b49fe", size = 14583, upload-time = "2026-03-25T20:22:03.012Z" },
+]
+
+[[package]]
+name = "treeple"
+version = "0.10.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/11/eb/f430b734b49751cd65de939c5336be67f851e5af4c86c5202bdbfeb021d5/treeple-0.10.3.tar.gz", hash = "sha256:3b7e9ab303dd5c9309db2447f7a73b31aeeff7eef6db600121c4684fa72f2558", size = 9642932, upload-time = "2025-03-03T21:20:13.717Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/c3/7527e23d439e8323a8dd42b270fe94af0d0420ff8b8ac7655a86b6f32e31/treeple-0.10.3-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:cec15ae4262bb5ee475f2a8c902757c0efcd846923c8e2df519de2e31c20c92c", size = 2297603, upload-time = "2025-03-03T21:19:48.465Z" },
+    { url = "https://files.pythonhosted.org/packages/48/c9/d551fc3d70832d12a0afbec6e122cd638aab9beacc43afa2c77a21e17df9/treeple-0.10.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:36da98499481226ad356521cc6f337b90857f3a4f481a55eb1c7a5dff6309690", size = 2160403, upload-time = "2025-03-03T21:19:49.985Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/79/c285d07fef2c668044f2e23d6089a0aa04ef7273d0fe5fd6b2824a934695/treeple-0.10.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:eb875e674e8ccb4def93d6e9ca0d01e78d8677ad670f7f54958f888b767eb265", size = 2879970, upload-time = "2025-03-03T21:19:51.392Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/0e/619670ca4a1a7c05002ca1f53f39f9beda0bab0e64396321a862b372a05c/treeple-0.10.3-cp310-cp310-win_amd64.whl", hash = "sha256:e7cf98a08fcb21222cd5063d2919a82d8b653d8e73bc281423982c873cdd01bd", size = 5516573, upload-time = "2025-03-03T21:19:52.999Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/db/3830b2e369bb2c30452ace1f6310bb09b28292047508bb89f7efb9138653/treeple-0.10.3-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:71152487cea3b4d49aa29d291e0c0b596f37648c10b2cb74f54379e17a0e0209", size = 2300515, upload-time = "2025-03-03T21:19:55.167Z" },
+    { url = "https://files.pythonhosted.org/packages/10/f7/fad2c634ab55319c7fe56466c7247f756b046ee1a11a23674db58f1f8754/treeple-0.10.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:df0538b587bef257347b9ca6d9bd60fe6526041bdb5219d4247d10a83f2fb3db", size = 2160361, upload-time = "2025-03-03T21:19:56.47Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/47/632eba88c2c750f07918a831167347cd908d208c809a4550523e95904aca/treeple-0.10.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c23d904edf2874c3fff9bfdfb778d0a558cbd587c7e4e201581fad87cb4102be", size = 2874902, upload-time = "2025-03-03T21:19:57.878Z" },
+    { url = "https://files.pythonhosted.org/packages/55/08/587e4a6771a5380377be9b58fe5136dc0b6bd21a260fe7ff4180796a6510/treeple-0.10.3-cp311-cp311-win_amd64.whl", hash = "sha256:31aaeb71f1e2d74eeb24c5b3963b450cdb6cd3596fb81281161ffdca6aeed18e", size = 5512114, upload-time = "2025-03-03T21:20:00.185Z" },
+    { url = "https://files.pythonhosted.org/packages/47/37/aecb4ad5b0c20a7307269146ad8a76a90e814fd69c3f5c39e6a1785c14e6/treeple-0.10.3-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:dcb4d143952554496fc28bbaebac8b8b1c05a6326ca1d30de41da256d1c8eb9e", size = 2330842, upload-time = "2025-03-03T21:20:01.573Z" },
+    { url = "https://files.pythonhosted.org/packages/82/3d/8088c694cdc7f9cb3fb37fe0f81c9be75e839057cb4ffbe6224f8b3ce117/treeple-0.10.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b9cc95247a200dd7a0333ae69e78a7e3aecfdbabd57305235a434103be05c7b4", size = 2179285, upload-time = "2025-03-03T21:20:02.908Z" },
+    { url = "https://files.pythonhosted.org/packages/99/1e/40f769745620e946cbb76609148e415a8cec5ec8952293c5f3cc36e4a09a/treeple-0.10.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:caac7ac972bb4579998ed27cf980dca4083f850d177b8a73d1571b51964885cd", size = 2765157, upload-time = "2025-03-03T21:20:04.286Z" },
+    { url = "https://files.pythonhosted.org/packages/80/69/e7d74a573aeb784a085f334c5409cbc1d19729e8edf170ecb08c70fa68ed/treeple-0.10.3-cp312-cp312-win_amd64.whl", hash = "sha256:6990afaed088bfe509202b6edaad10b01d7331fc7ccd93a5eff6c32135edcb8c", size = 5412909, upload-time = "2025-03-03T21:20:05.683Z" },
 ]
 
 [[package]]

@@ -9,8 +9,8 @@ import oqboost.plot as oqp
 ```
 
 All functions take a fitted OQBoost model and return a matplotlib `Axes`
-(accepting an `ax=` to compose subplots). For multiclass models, pass
-`class_idx=k` to select one one-vs-rest class.
+(accepting an `ax=` to compose subplots). For multiclass `ovr` models, pass
+`class_idx=k` to select one class (per-class views require `multiclass="ovr"`).
 
 ## Functions
 

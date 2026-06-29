@@ -13,17 +13,19 @@ train에 적합하고 held-out test에서 비교한다. 튜닝은 하지 않는�
 사용: python optimize.py ... ; python benchmark.py [--tasks binary,multiclass,regression]
 출력: docs/benchmark.csv (long), docs/images/benchmark_optuna.png
 """
-import sys, json, time
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
+import tuning
+import json, time
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (roc_auc_score, accuracy_score, balanced_accuracy_score,
                              r2_score, mean_squared_error, mean_absolute_error)
 
 from datasets import SUITES, CAT_INDEX
-from tuning import models_for, COLORS, PARAMS_JSON, build, split_tvt, model_inputs
+from tuning import models_for, COLORS, PARAMS_JSON, build, split_tvt, model_inputs, REGISTRY
 
 _tflag = [a for a in sys.argv if a.startswith("--tasks")]
 TASKS = (_tflag[0].split("=")[1].split(",") if _tflag and "=" in _tflag[0]
@@ -81,17 +83,22 @@ def main():
     rows = []
     for task in TASKS:
         strat = task != "regression"
-        for name, X, y in SUITES[task](max_rows=8000):
-            if name not in cache:
-                continue
+        for name, X, y in SUITES[task](max_rows=10000):
+            print(f"Running [{task}] {name}...", flush=True)
             Xtr, Xva, Xtt, ytr, yva, ytt = split_tvt(X, y, stratify=strat)
             cat = [] if NO_CAT else CAT_INDEX.get(name, [])
             cards = {j: int(round(X[:, j].max())) + 1 for j in cat}
             for mname in models_for(task):
-                params = cache.get(name, {}).get(mname)
+                params = cache.get(name, {}).get(mname) if name in cache else None
+                print(f"  Fitting {mname}...", flush=True)
                 if params is None:
-                    continue
-                m = build(mname, params, task=task, cat_idx=cat)
+                    _, Model = REGISTRY[task][mname]
+                    kw = {}
+                    from tuning import inject_categorical
+                    inject_categorical(mname, kw, cat)
+                    m = Model(**kw)
+                else:
+                    m = build(mname, params, task=task, cat_idx=cat)
                 Xtr_m = model_inputs(mname, Xtr, cat, cards)
                 Xva_m = model_inputs(mname, Xva, cat, cards)
                 Xtt_m = model_inputs(mname, Xtt, cat, cards)
@@ -100,7 +107,7 @@ def main():
                 else:
                     met = eval_classification(task, m, Xtr_m, ytr, Xva_m, yva, Xtt_m, ytt)
                 rows.append(dict(task=task, dataset=name, model=mname, **met))
-            print(f"  done [{task}] {name}  (cat={len(cat)})")
+            print(f"  done [{task}] {name}  (cat={len(cat)})", flush=True)
 
     df = pd.DataFrame(rows)
     out = PARAMS_JSON.parent
@@ -137,7 +144,7 @@ def _plot(df, path):
         prim = PRIMARY[task]
         sub = df[df.task == task]
         piv = sub.pivot(index="dataset", columns="model", values=prim)
-        models = [m for m in ["OQBoost", "XGBoost", "LightGBM", "CatBoost"] if m in piv.columns]
+        models = [m for m in ["OQBoost", "XGBoost", "LightGBM", "CatBoost", "ObliqueTree", "ObliqueForest"] if m in piv.columns]
         piv = piv[models]
         ds = list(piv.index); x = np.arange(len(ds)); w = 0.8 / max(1, len(models))
         for i, m in enumerate(models):

@@ -1,7 +1,8 @@
 # `OQBoostClassifier`
 
 2D-oblique gradient-boosted decision trees for classification. Binary is native
-(logistic); multiclass is one-vs-rest. scikit-learn compatible.
+(logistic); multiclass defaults to a joint softmax model (`multiclass="ovr"` for
+one-vs-rest). scikit-learn compatible.
 
 ```python
 from oqboost import OQBoostClassifier
@@ -20,7 +21,8 @@ from oqboost import OQBoostClassifier
 | `n_screen` | -1 | SIS top-m feature screening (-1 = exhaustive) |
 | `subsample` | 0.8 | rows sampled per tree |
 | `colsample` | 0.8 | features sampled per node |
-| `fast_dir` | 1 | direction finder: 1 = H-weighted gradient regression, 0 = BHC seed (legacy) |
+| `fast_dir` | `"full"` | 2D-pair search: `"full"` = all pairs (O(d²), accuracy) · `"fast"` = Star anchor feat0×rest (O(d), speed). Legacy ints `1`/`2` accepted |
+| `multiclass` | `"joint"` | `"joint"` = single softmax model (default) · `"ovr"` = one binary booster per class |
 | `threshold` | `"0.5"` | binary decision cut — `"balanced"` / `"f1"` tune it on a holdout |
 | `class_weight` | `None` | `"balanced"` or `{class: weight}` dict |
 | `monotone_constraints` | `None` | per-feature monotonicity, list of `-1/0/+1` or `{idx: dir}` — see [guide](../guides/monotonic.md) |
@@ -37,7 +39,7 @@ from oqboost import OQBoostClassifier
 - `fit(X, y, sample_weight=None)` — `y` binary or multiclass. See [sample_weight notes](../guides/early_stopping.md) on weighting.
 - `predict(X)` → class labels.
 - `predict_proba(X)` → `(n_samples, n_classes)`, rows sum to 1.
-- `explain(X)` → additive contributions; `(n, d)` binary, `(n, n_classes, d)` multiclass. See [explainability](../explainability.md).
+- `explain(X)` → additive contributions; `(n, d)` binary, `(n, n_classes, d)` multiclass (requires `multiclass="ovr"`). See [explainability](../explainability.md).
 
 ## Attributes
 

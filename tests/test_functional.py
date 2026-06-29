@@ -156,7 +156,7 @@ def test_explain_additive(reg_data):
 
 def test_explain_multiclass_shape():
     X, y = load_iris(return_X_y=True)
-    m = OQBoostClassifier(n_estimators=40, random_state=0).fit(X, y)
+    m = OQBoostClassifier(n_estimators=40, multiclass="ovr", random_state=0).fit(X, y)
     assert m.explain(X[:5]).shape == (5, 3, 4)
 
 
@@ -231,3 +231,15 @@ def test_y_none_raises(clf_data):
     X, y = clf_data
     with pytest.raises(ValueError):
         OQBoostClassifier(n_estimators=10).fit(X, None)
+
+
+def test_joint_multiclass():
+    X, y = load_iris(return_X_y=True)
+    m = OQBoostClassifier(n_estimators=50, multiclass="joint", random_state=42).fit(X, y)
+    p = m.predict_proba(X)
+    assert p.shape == (len(y), 3)
+    assert np.allclose(p.sum(axis=1), 1.0, atol=1e-6)
+    pred = m.predict(X)
+    acc = np.mean(pred == y)
+    assert acc > 0.90
+

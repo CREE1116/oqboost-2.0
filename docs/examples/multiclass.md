@@ -1,6 +1,8 @@
 # Example: multiclass classification
 
-`OQBoostClassifier` detects >2 classes and uses one-vs-rest automatically.
+`OQBoostClassifier` detects >2 classes and uses the joint softmax model
+automatically (`multiclass="joint"`, the default). Pass `multiclass="ovr"` for
+one-vs-rest.
 
 ```python
 from sklearn.datasets import load_iris
@@ -28,12 +30,16 @@ clf = OQBoostClassifier(class_weight="balanced").fit(Xtr, ytr)
 
 ## Per-class explanation
 
+`explain()` requires `multiclass="ovr"` (the joint model shares one tree across
+classes, so per-class attribution is undefined):
+
 ```python
-phi = clf.explain(Xte[:10])         # (10, 3, n_features)
-phi_class0 = phi[:, 0, :]           # contributions to class 0's OvR score
+ovr = OQBoostClassifier(multiclass="ovr", n_estimators=120, max_depth=3).fit(Xtr, ytr)
+phi = ovr.explain(Xte[:10])         # (10, 3, n_features)
+phi_class0 = phi[:, 0, :]           # contributions to class 0's score
 
 import oqboost.plot as oqp
-oqp.plot_importance(clf, class_idx=1)   # importance for class 1
+oqp.plot_importance(ovr, class_idx=1)   # importance for class 1
 ```
 
 See [multiclass guide](../guides/multiclass.md), [explainability](../explainability.md).

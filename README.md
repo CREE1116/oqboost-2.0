@@ -62,7 +62,7 @@ More in [docs/quickstart.md](docs/quickstart.md).
 | Higher-order interactions | Composed via tree depth + boosting (2D atoms) |
 | Missing values | Native — NaN routed to a learned bin (no imputation) |
 | Inputs | NumPy / pandas (feature names) / scipy sparse |
-| Tasks | `OQBoostClassifier` (binary + multiclass OvR) · `OQBoostRegressor` |
+| Tasks | `OQBoostClassifier` (binary + multiclass: joint softmax / OvR) · `OQBoostRegressor` |
 | API | scikit-learn compatible (`check_estimator`) |
 | Backend | Compiled C++ (pybind11) |
 

@@ -43,9 +43,11 @@ trees (which can set-partition a category and so need the ordering less).
 
 - **Binary / regression**: one encoded column per categorical, computed against
   the target.
-- **Multiclass** (one-vs-rest): each per-class booster encodes the column against
-  its own binary target, so every booster sees a category ordering tuned to the
-  class it separates.
+- **Multiclass `joint`** (default): one encoding fit once against the class
+  labels, shared by the single softmax model.
+- **Multiclass `ovr`**: each per-class booster encodes the column against its own
+  binary target, so every booster sees a category ordering tuned to the class it
+  separates.
 
 Feature layout is unchanged (columns are replaced in place), so
 `feature_importances_`, `explain`, and `monotone_constraints` keep referring to

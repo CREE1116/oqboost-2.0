@@ -18,8 +18,10 @@ features on the sample's path, weighted by `gain * |coef|`. The result is
 base score, so it lines up directly with `shap` values from other models.
 
 - Binary / regression: shape `(n_samples, n_features)`.
-- Multiclass (OvR): shape `(n_samples, n_classes, n_features)` — `[:, k, :]` are
-  the contributions to class `k`'s one-vs-rest score.
+- Multiclass: requires `multiclass="ovr"` → shape `(n_samples, n_classes,
+  n_features)`, `[:, k, :]` are the contributions to class `k`'s score. The
+  default `joint` model shares one tree across classes, so per-class path
+  attribution is undefined and `explain()` raises.
 - Not available when `max_lineage > 0` (LOB's composed directions have no
   path-additive attribution).
 
@@ -47,7 +49,8 @@ oqp.plot_explanation(model, x)          # one-sample additive contributions
 oqp.plot_explanation_summary(model, X)  # SHAP-style beeswarm
 ```
 
-For multiclass models every plot takes `class_idx=k` to view one class.
+For multiclass `ovr` models every plot takes `class_idx=k` to view one class
+(per-class explanation requires `multiclass="ovr"`).
 
 <p align="center">
   <img src="images/explainability.png" alt="OQBoost native explanation plots" width="820">
