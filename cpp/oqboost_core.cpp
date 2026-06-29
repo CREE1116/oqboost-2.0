@@ -516,12 +516,23 @@ static Split eval_1d(const std::vector<FCache>& C,
 }
 
 // ─── 한 쌍 2D oblique (Workspace 주입 및 SIMD 고속 투영 적용) ────────────────
+// FStat: per-feature LSQ partial sums, precomputed once per node and reused
+// across every pair the feature appears in (it shows up in d-1 pairs in "full"
+// mode). Only the cross term Σh·xa·xb is irreducibly pairwise.
+struct FStat {
+  double sa;   // Σ h·x
+  double saa;  // Σ h·x²
+  double sat;  // Σ -g·x
+};
+
 static Split eval_pair(const FCache& cA_, const FCache& cB_,
                        const std::vector<double>& ctrA,
                        const std::vector<double>& ctrB,
                        const std::vector<double>& gn,
                        const std::vector<double>& hn, double Gp, double Hp,
-                       const Params& P, Workspace& ws, bool has_nan) {
+                       const Params& P, Workspace& ws, bool has_nan,
+                       double Sh_pre, double St_pre, const FStat& sA,
+                       const FStat& sB) {
   Split s;
   int kA = (int)ctrA.size(), kB = (int)ctrB.size();
   if (kA < 1 || kB < 1) return s;
@@ -530,26 +541,18 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
 
   {
     // H-가중 gradient 직접 회귀: t=-g/h를 두 피처에 가중 LSQ → 방향.
-    // 그리드 scatter·점유수집·정렬·BHC·LSQ 전부 생략, 9-스칼라 1패스 + 2×2.
     double Sh = 0, Sa = 0, Sb = 0, Saa = 0, Sab = 0, Sbb = 0, Sat = 0, Sbt = 0,
            St = 0;
     if (!has_nan) {
+      // No NaN → per-feature sums are pair-independent and were precomputed;
+      // only the cross term Sab needs a pass here (1 reduction vs 9).
+      Sh = Sh_pre; St = St_pre;
+      Sa = sA.sa; Saa = sA.saa; Sat = sA.sat;
+      Sb = sB.sa; Sbb = sB.saa; Sbt = sB.sat;
 #if defined(__GNUC__) || defined(__clang__)
-#pragma omp simd reduction(+:Sh,Sa,Sb,Saa,Sab,Sbb,Sat,Sbt,St)
+#pragma omp simd reduction(+ : Sab)
 #endif
-      for (int i = 0; i < nloc; i++) {
-        double xa = cA_.col[i], xb = cB_.col[i];
-        double gi = gn[i], hi = hn[i];
-        Sh += hi;
-        Sa += hi * xa;
-        Sb += hi * xb;
-        Saa += hi * xa * xa;
-        Sab += hi * xa * xb;
-        Sbb += hi * xb * xb;
-        Sat += -gi * xa;
-        Sbt += -gi * xb;
-        St += -gi;
-      }
+      for (int i = 0; i < nloc; i++) Sab += hn[i] * cA_.col[i] * cB_.col[i];
     } else {
       for (int i = 0; i < nloc; i++) {
         double xa = cA_.col[i], xb = cB_.col[i];
@@ -654,6 +657,30 @@ static Split eval_2d(const std::vector<FCache>& C,
   int np = (int)pr.size();
   int nloc = (int)gn.size();
 
+  // Per-feature LSQ partial sums, computed once and reused across all pairs the
+  // feature appears in (O(nf·nloc), vs the O(nf²·nloc) pair loop). Same i-order
+  // summation as the old inline accumulation → bit-identical. NaN features are
+  // left zero (their pairs recompute on the joint non-NaN mask).
+  double Sh_pre = 0.0, St_pre = 0.0;
+  for (int i = 0; i < nloc; i++) { Sh_pre += hn[i]; St_pre += -gn[i]; }
+  std::vector<FStat> fst(nf, FStat{0.0, 0.0, 0.0});
+#pragma omp parallel for schedule(static) if (np > 1 && (long)nf * nloc > 30000)
+  for (int fi = 0; fi < nf; fi++) {
+    if (has_nan[C[fi].f]) continue;
+    const double* col = C[fi].col;
+    double sa = 0, saa = 0, sat = 0;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma omp simd reduction(+ : sa, saa, sat)
+#endif
+    for (int i = 0; i < nloc; i++) {
+      double x = col[i];
+      sa += hn[i] * x;
+      saa += hn[i] * x * x;
+      sat += -gn[i] * x;
+    }
+    fst[fi] = FStat{sa, saa, sat};
+  }
+
   int max_threads = 1;
 #ifdef _OPENMP
   max_threads = omp_get_max_threads();
@@ -680,7 +707,8 @@ static Split eval_2d(const std::vector<FCache>& C,
       int fB = C[pr[p].second].f;
       bool pair_has_nan = has_nan[fA] || has_nan[fB];
       Split s = eval_pair(C[pr[p].first], C[pr[p].second], centers[fA],
-                          centers[fB], gn, hn, Gp, Hp, P, wss[tid], pair_has_nan);
+                          centers[fB], gn, hn, Gp, Hp, P, wss[tid], pair_has_nan,
+                          Sh_pre, St_pre, fst[pr[p].first], fst[pr[p].second]);
       if (s.gain > local_best.gain) local_best = s;
     }
 #pragma omp critical
