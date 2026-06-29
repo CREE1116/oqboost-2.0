@@ -1262,15 +1262,17 @@ class Booster {
           for (int k = 1; k < K; k++) {
             if (raw[i * K + k] > max_val) max_val = raw[i * K + k];
           }
+          // stash softmax numerators in g[] (avoids a per-sample heap alloc),
+          // then normalize in place — same exp/division → bit-identical.
           double sum_exp = 0.0;
-          std::vector<double> p(K);
           for (int k = 0; k < K; k++) {
-            p[k] = std::exp(raw[i * K + k] - max_val);
-            sum_exp += p[k];
+            double e = std::exp(raw[i * K + k] - max_val);
+            g[i * K + k] = e;
+            sum_exp += e;
           }
           int yi = (int)y[i];
           for (int k = 0; k < K; k++) {
-            double pk = p[k] / sum_exp;
+            double pk = g[i * K + k] / sum_exp;
             g[i * K + k] = pk - (yi == k ? 1.0 : 0.0);
             h[i * K + k] = pk * (1.0 - pk);
           }
