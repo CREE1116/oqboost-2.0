@@ -532,9 +532,11 @@ static Split eval_1d(const std::vector<FCache>& C,
 // across every pair the feature appears in (it shows up in d-1 pairs in "full"
 // mode). Only the cross term Σh·xa·xb is irreducibly pairwise.
 struct FStat {
-  double sa;   // Σ h·x
-  double saa;  // Σ h·x²
-  double sat;  // Σ -g·x
+  double sa;    // Σ h·x
+  double saa;   // Σ h·x²
+  double sat;   // Σ -g·x
+  double fmin;  // min x  (node-local; for the projection-range bound)
+  double fmax;  // max x
 };
 
 static Split eval_pair(const FCache& cA_, const FCache& cB_,
@@ -605,21 +607,61 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
     }
   }
 
-  ws.proj.resize(nloc);
-  double pmn = std::numeric_limits<double>::infinity();
-  double pmx = -std::numeric_limits<double>::infinity();
+  double t, gn2;
   if (!has_nan) {
-// NaN 없으면 분기 없는 SIMD: 투영 + min/max reduction 한 패스로 융합
-#if defined(__GNUC__) || defined(__clang__)
-#pragma omp simd reduction(min : pmn) reduction(max : pmx)
-#endif
-    for (int i = 0; i < nloc; i++) {
-      double p = coefA * cA_.col[i] + coefB * cB_.col[i];
-      ws.proj[i] = p;
-      pmn = p < pmn ? p : pmn;
-      pmx = p > pmx ? p : pmx;
+    // The projection coefA·xa+coefB·xb lies in [Lo,Hi], computable up front from
+    // the per-feature min/max (no pass). That lets us histogram the projection in
+    // the SAME pass that computes it — no proj[] materialization and no separate
+    // range scan, cutting the per-pair work from 3 O(n) passes to 2. The bound is
+    // a superset of the true range (slightly coarser bins), and 2D split quality
+    // is robust to bin resolution.
+    double Lo = coefA * (coefA >= 0 ? sA.fmin : sA.fmax) +
+                coefB * (coefB >= 0 ? sB.fmin : sB.fmax);
+    double Hi = coefA * (coefA >= 0 ? sA.fmax : sA.fmin) +
+                coefB * (coefB >= 0 ? sB.fmax : sB.fmin);
+    if (Hi - Lo < 1e-12) return s;
+    // The bound is a superset of the true projection range, so use a finer grid
+    // (4×) to keep the effective resolution at least as good as the tight-range
+    // histogram — the scatter is O(n) regardless of bin count, only the O(B) scan
+    // grows (negligible).
+    const int B = g_hist_bins * 4;
+    double w = (Hi - Lo) / B, inv_w = B / (Hi - Lo);
+    if ((int)ws.histG.size() < B) {
+      ws.histG.assign(B, 0.0);
+      ws.histH.assign(B, 0.0);
     }
+    std::vector<double>& Gb = ws.histG;
+    std::vector<double>& Hb = ws.histH;
+    std::fill(Gb.begin(), Gb.begin() + B, 0.0);
+    std::fill(Hb.begin(), Hb.begin() + B, 0.0);
+    const double* colA = cA_.col;
+    const double* colB = cB_.col;
+    for (int i = 0; i < nloc; i++) {
+      double p = coefA * colA[i] + coefB * colB[i];
+      int b = (int)((p - Lo) * inv_w);
+      if (b >= B) b = B - 1;
+      if (b < 0) b = 0;
+      Gb[b] += gn[i];
+      Hb[b] += hn[i];
+    }
+    double base = gain_term(Gp, Hp, P.reg_lambda), GL = 0, HL = 0, bg = 0, bt = 0;
+    bool found = false;
+    for (int b = 0; b + 1 < B; b++) {
+      GL += Gb[b];
+      HL += Hb[b];
+      if (HL <= 1e-12 || Hp - HL <= 1e-12) continue;
+      double gv = gain_term(GL, HL, P.reg_lambda) +
+                  gain_term(Gp - GL, Hp - HL, P.reg_lambda) - base;
+      if (gv > bg) { bg = gv; bt = Lo + (b + 1) * w; found = true; }
+    }
+    if (!found) return s;
+    t = bt; gn2 = bg;
   } else {
+    // has-NaN: keep the proj materialization + tight-range histogram (NaN samples
+    // routed to a dedicated side, range can't be bounded a priori).
+    ws.proj.resize(nloc);
+    double pmn = std::numeric_limits<double>::infinity();
+    double pmx = -std::numeric_limits<double>::infinity();
     for (int i = 0; i < nloc; i++) {
       if (std::isnan(cA_.col[i]) || std::isnan(cB_.col[i])) {
         ws.proj[i] = std::numeric_limits<double>::quiet_NaN();
@@ -630,11 +672,10 @@ static Split eval_pair(const FCache& cA_, const FCache& cB_,
         pmx = p > pmx ? p : pmx;
       }
     }
+    if (!refine_threshold(ws.proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp, pmn,
+                          pmx, t, gn2, has_nan, ws))
+      return s;
   }
-  double t, gn2;
-  if (!refine_threshold(ws.proj, gn.data(), hn.data(), P.reg_lambda, Gp, Hp, pmn,
-                        pmx, t, gn2, has_nan, ws))
-    return s;
   s.gain = gn2;
   s.type = 2;
   s.fA = cA_.f;
@@ -675,22 +716,26 @@ static Split eval_2d(const std::vector<FCache>& C,
   // left zero (their pairs recompute on the joint non-NaN mask).
   double Sh_pre = 0.0, St_pre = 0.0;
   for (int i = 0; i < nloc; i++) { Sh_pre += hn[i]; St_pre += -gn[i]; }
-  std::vector<FStat> fst(nf, FStat{0.0, 0.0, 0.0});
+  std::vector<FStat> fst(nf, FStat{0.0, 0.0, 0.0, 0.0, 0.0});
 #pragma omp parallel for schedule(static) if (np > 1 && (long)nf * nloc > 30000)
   for (int fi = 0; fi < nf; fi++) {
     if (has_nan[C[fi].f]) continue;
     const double* col = C[fi].col;
     double sa = 0, saa = 0, sat = 0;
+    double fmn = std::numeric_limits<double>::infinity();
+    double fmx = -std::numeric_limits<double>::infinity();
 #if defined(__GNUC__) || defined(__clang__)
-#pragma omp simd reduction(+ : sa, saa, sat)
+#pragma omp simd reduction(+ : sa, saa, sat) reduction(min : fmn) reduction(max : fmx)
 #endif
     for (int i = 0; i < nloc; i++) {
       double x = col[i];
       sa += hn[i] * x;
       saa += hn[i] * x * x;
       sat += -gn[i] * x;
+      fmn = x < fmn ? x : fmn;
+      fmx = x > fmx ? x : fmx;
     }
-    fst[fi] = FStat{sa, saa, sat};
+    fst[fi] = FStat{sa, saa, sat, fmn, fmx};
   }
 
   int max_threads = 1;
