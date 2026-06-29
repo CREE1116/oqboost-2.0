@@ -539,16 +539,14 @@
   },
   "kr_vs_kp": {
     "OQBoost": {
-      "n_estimators": 169,
-      "learning_rate": 0.21314559374432776,
-      "max_depth": 4,
-      "max_bins": 74,
-      "subsample": 0.6424104849988331,
-      "colsample": 0.8468803552280904,
-      "reg_lambda": 0.1833782089261982,
-      "n_screen": 16,
-      "multiclass": "joint",
-      "fast_dir": 2
+      "n_estimators": 216,
+      "learning_rate": 0.05337721402254888,
+      "max_depth": 7,
+      "max_bins": 8,
+      "subsample": 0.7984712978392116,
+      "colsample": 0.9171979198143886,
+      "reg_lambda": 0.1385713450295601,
+      "n_screen": 27
     },
     "XGBoost": {
       "n_estimators": 172,
@@ -590,15 +588,14 @@
   "digits": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 141,
-      "learning_rate": 0.0732959544115492,
-      "max_depth": 6,
-      "max_bins": 201,
-      "subsample": 0.6898693025872835,
-      "colsample": 0.754248833549528,
-      "reg_lambda": 0.24988200195415775,
-      "n_screen": 16,
-      "multiclass": "joint"
+      "n_estimators": 171,
+      "learning_rate": 0.08064937145444481,
+      "max_depth": 8,
+      "max_bins": 125,
+      "subsample": 0.8462733440706751,
+      "colsample": 0.6878215895125165,
+      "reg_lambda": 0.7554890925885489,
+      "n_screen": 17
     },
     "XGBoost": {
       "n_estimators": 172,
@@ -639,15 +636,14 @@
   "wine": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 81,
-      "learning_rate": 0.034003508264422166,
-      "max_depth": 1,
-      "max_bins": 88,
-      "subsample": 0.7554709158757927,
-      "colsample": 0.7085396127095583,
-      "reg_lambda": 2.558586885593424,
-      "n_screen": 16,
-      "multiclass": "joint"
+      "n_estimators": 221,
+      "learning_rate": 0.23775153766366292,
+      "max_depth": 4,
+      "max_bins": 61,
+      "subsample": 0.7912243213410688,
+      "colsample": 0.6891395051723486,
+      "reg_lambda": 3.6810452492348418,
+      "n_screen": 14
     },
     "XGBoost": {
       "n_estimators": 70,
@@ -688,15 +684,14 @@
   "vehicle": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 268,
-      "learning_rate": 0.10185822566867639,
-      "max_depth": 6,
-      "max_bins": 13,
-      "subsample": 0.9879639408647978,
-      "colsample": 0.9329770563201687,
-      "reg_lambda": 0.22948683681130555,
-      "n_screen": 16,
-      "multiclass": "joint"
+      "n_estimators": 181,
+      "learning_rate": 0.2663644693719672,
+      "max_depth": 8,
+      "max_bins": 90,
+      "subsample": 0.641751667086912,
+      "colsample": 0.6586247326908601,
+      "reg_lambda": 3.7464137837641887,
+      "n_screen": 17
     },
     "XGBoost": {
       "n_estimators": 211,
@@ -737,15 +732,14 @@
   "cmc": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 102,
-      "learning_rate": 0.022769175212830544,
-      "max_depth": 3,
-      "max_bins": 183,
-      "subsample": 0.8074879828556968,
-      "colsample": 0.6272501091358751,
-      "reg_lambda": 0.27765566184695345,
-      "n_screen": 16,
-      "multiclass": "joint"
+      "n_estimators": 78,
+      "learning_rate": 0.023269702389863384,
+      "max_depth": 1,
+      "max_bins": 16,
+      "subsample": 0.8389011421131269,
+      "colsample": 0.9828570489739774,
+      "reg_lambda": 0.26643806233666734,
+      "n_screen": 13
     },
     "XGBoost": {
       "n_estimators": 115,
@@ -786,15 +780,14 @@
   "eucalyptus": {
     "_task": "multiclass",
     "OQBoost": {
-      "n_estimators": 77,
-      "learning_rate": 0.11398582871850724,
-      "max_depth": 6,
-      "max_bins": 22,
-      "subsample": 0.8898131467766017,
-      "colsample": 0.6843616477152338,
-      "reg_lambda": 4.939515312073538,
-      "n_screen": 16,
-      "multiclass": "joint"
+      "n_estimators": 145,
+      "learning_rate": 0.02496475954325056,
+      "max_depth": 4,
+      "max_bins": 189,
+      "subsample": 0.8714358664777905,
+      "colsample": 0.8752742563261053,
+      "reg_lambda": 0.19746336408819085,
+      "n_screen": 18
     },
     "XGBoost": {
       "n_estimators": 152,
@@ -1460,16 +1453,14 @@
   "phishing": {
     "_task": "binary",
     "OQBoost": {
-      "n_estimators": 220,
-      "learning_rate": 0.0627204104608031,
+      "n_estimators": 261,
+      "learning_rate": 0.044011288587355146,
       "max_depth": 7,
-      "max_bins": 8,
-      "subsample": 0.9996886370424127,
-      "colsample": 0.811428354970177,
-      "reg_lambda": 0.29424195447383167,
-      "n_screen": 16,
-      "multiclass": "joint",
-      "fast_dir": 1
+      "max_bins": 22,
+      "subsample": 0.9075913659286818,
+      "colsample": 0.6025047299250622,
+      "reg_lambda": 0.36153811449573886,
+      "n_screen": 17
     },
     "XGBoost": {
       "n_estimators": 170,
@@ -1510,16 +1501,14 @@
   "eeg_eye_state": {
     "_task": "binary",
     "OQBoost": {
-      "n_estimators": 224,
-      "learning_rate": 0.14752183541032624,
-      "max_depth": 7,
-      "max_bins": 34,
-      "subsample": 0.7772592845191826,
-      "colsample": 0.6524211023179018,
-      "reg_lambda": 0.222280195058623,
-      "n_screen": 16,
-      "multiclass": "ovr",
-      "fast_dir": 1
+      "n_estimators": 287,
+      "learning_rate": 0.27035117088290345,
+      "max_depth": 8,
+      "max_bins": 35,
+      "subsample": 0.8322914200290399,
+      "colsample": 0.9239943549703041,
+      "reg_lambda": 0.24114884302489575,
+      "n_screen": 30
     },
     "XGBoost": {
       "n_estimators": 125,
@@ -1560,16 +1549,14 @@
   "ozone": {
     "_task": "binary",
     "OQBoost": {
-      "n_estimators": 115,
-      "learning_rate": 0.03796897749675252,
-      "max_depth": 7,
-      "max_bins": 183,
-      "subsample": 0.650773441009233,
-      "colsample": 0.9180685424242605,
-      "reg_lambda": 0.8199507879487733,
-      "n_screen": 16,
-      "multiclass": "ovr",
-      "fast_dir": 1
+      "n_estimators": 104,
+      "learning_rate": 0.03131345939822011,
+      "max_depth": 6,
+      "max_bins": 34,
+      "subsample": 0.6421391463444032,
+      "colsample": 0.9990855017030457,
+      "reg_lambda": 0.4079603029866041,
+      "n_screen": 14
     },
     "XGBoost": {
       "n_estimators": 153,
