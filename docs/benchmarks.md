@@ -25,16 +25,18 @@ R² for regression.
 
 | Task (datasets) | OQBoost | CatBoost | XGBoost | LightGBM |
 | --------------- | ------: | -------: | ------: | -------: |
-| Binary (12)     | **2.08** (6) | 2.42 (2) | 2.62 (2) | 2.88 (1) |
-| Multiclass (10) | **2.20** (3) | **2.20** (3) | 3.20 (0) | 2.40 (1) |
-| Regression (10) | 2.50 (2) | **1.40** (6) | 3.20 (1) | 2.90 (1) |
+| Binary (26)     | **2.04** (13) | 2.65 (4) | 2.81 (4) | 2.50 (5) |
+| Multiclass (17) | **2.29** (7) | 2.53 (3) | 2.53 (4) | 2.65 (3) |
+| Regression (17) | 2.06 (8) | **2.00** (7) | 3.53 (0) | 2.41 (2) |
 
-OQBoost leads the binary suite on mean rank and wins, ties CatBoost for the lead
-on multiclass, and lands second to CatBoost on regression. It also has the best
-mean balanced accuracy on both classification suites (binary 0.856, multiclass
-0.826). Differences are generally small and tuning/dataset dependent — treat this
-as one reproducible snapshot, not a definitive ranking. Where the oblique
-structure helps most is interaction-heavy problems.
+OQBoost leads the binary suite clearly (rank 2.04, 13/26 wins) and leads multiclass
+on both rank (2.29) and wins (7/17). On regression CatBoost edges it by mean rank
+(2.00 vs 2.06) while OQBoost wins more datasets (8 vs 7). Mean balanced accuracy:
+binary OQBoost best (0.858 vs Cat 0.852 / LGB 0.851 / XGB 0.843); multiclass
+XGBoost leads (0.837) — the gap traces to a single hard dataset (kr_vs_k) where
+OQBoost's oblique structure underperforms. Differences are generally small and
+tuning/dataset dependent — treat this as one reproducible snapshot, not a
+definitive ranking. Where the oblique structure helps most is interaction-heavy problems.
 
 ## Prediction similarity
 
