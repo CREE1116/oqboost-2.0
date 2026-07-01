@@ -4,7 +4,7 @@ optimize.py — Optuna 하이퍼파라미터 튜닝 (벤치마크와 분리)
 binary·multiclass·regression 세 task의 다양한 OpenML 데이터셋에서 4개 모델
 (OQBoost/XGBoost/LightGBM/CatBoost)을 각각 Optuna로 튜닝하고 best_params를
 `docs/optuna_params.json`에 저장한다. (val 메트릭 최대화)
-  - task별 메트릭: binary=ROC-AUC, multiclass=OvR macro-AUC, regression=R².
+  - task별 메트릭: binary=ROC-AUC, multiclass=accuracy(argmax), regression=R².
   - 증분 저장: 각 (dataset,model) 직후 기록 → 중단돼도 진행분 보존.
   - 이미 캐시된 항목은 건너뜀 (재튜닝: --retune).
 벤치마크(test 평가)는 `benchmark.py`가 이 JSON을 읽어 수행한다.
@@ -20,7 +20,7 @@ import tuning
 import json, time
 import numpy as np
 import optuna
-from sklearn.metrics import roc_auc_score, r2_score
+from sklearn.metrics import roc_auc_score, r2_score, accuracy_score
 
 from datasets import SUITES, CAT_INDEX
 from tuning import (models_for, PARAMS_JSON, SEED, split_tvt,
@@ -47,11 +47,15 @@ def save_cache(cache):
 
 
 def val_score(task, m, Xva, yva):
-    """task별 validation 점수 (모두 '클수록 좋음')."""
+    """task별 validation 점수 (모두 '클수록 좋음').
+
+    multiclass는 argmax **accuracy**로 튜닝한다 — predict()가 argmax를 쓰므로
+    OvR-macro-AUC를 최대화하면 클래스 경계(threshold)는 좋아져도 argmax 정확도는
+    안 맞을 수 있어, 헤드라인 acc가 약해졌다. binary는 그대로 AUC(이진 primary)."""
     if task == "binary":
         return roc_auc_score(yva, m.predict_proba(Xva)[:, 1])
     if task == "multiclass":
-        return roc_auc_score(yva, m.predict_proba(Xva), multi_class="ovr", average="macro")
+        return accuracy_score(yva, m.predict(Xva))
     return r2_score(yva, m.predict(Xva))  # regression
 
 

@@ -326,7 +326,7 @@ def oq_params(t):
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
                 reg_lambda=t.suggest_float("reg_lambda", 0.1, 5.0, log=True),
-                n_screen=t.suggest_int("n_screen", 8, 32),
+                n_screen=16,
                 fast_dir="full",  # 전수조사("full") 고정 — 정확도 우선
                 random_state=SEED)
 
@@ -339,7 +339,7 @@ def oq_multiclass_params(t):
                 subsample=t.suggest_float("subsample", 0.6, 1.0),
                 colsample=t.suggest_float("colsample", 0.6, 1.0),
                 reg_lambda=t.suggest_float("reg_lambda", 0.1, 5.0, log=True),
-                n_screen=t.suggest_int("n_screen", 8, 32),
+                n_screen=16,
                 multiclass="joint",
                 fast_dir="full",  # 멀티클래스도 전수조사("full") 고정
                 random_state=SEED)
